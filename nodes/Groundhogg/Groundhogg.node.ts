@@ -311,6 +311,38 @@ export class Groundhogg implements INodeType {
 				description: 'The email address of the contact. If the email already exists, the contact will be updated (upsert).',
 			},
 			{
+				displayName: 'First Name',
+				name: 'first_name',
+				type: 'string',
+				default: '',
+				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
+			},
+			{
+				displayName: 'Last Name',
+				name: 'last_name',
+				type: 'string',
+				default: '',
+				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
+			},
+			{
+				displayName: 'Phone',
+				name: 'primary_phone',
+				type: 'string',
+				default: '',
+				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
+				description: 'Stored as the primary_phone meta field on the contact',
+			},
+			{
+				displayName: 'Owner Name or ID',
+				name: 'owner_id',
+				type: 'options',
+				typeOptions: { loadOptionsMethod: 'getOwners' },
+				default: '',
+				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
+				description:
+					'The WordPress user assigned as owner of this contact. List is loaded from your site. Use an expression to pass a user ID that is not in the list.',
+			},
+			{
 				displayName: 'Additional Fields',
 				name: 'contactAdditionalFields',
 				type: 'collection',
@@ -318,21 +350,12 @@ export class Groundhogg implements INodeType {
 				default: {},
 				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
 				options: [
-					{ displayName: 'First Name', name: 'first_name', type: 'string', default: '' },
-					{ displayName: 'Last Name', name: 'last_name', type: 'string', default: '' },
 					{
 						displayName: 'Optin Status',
 						name: 'optin_status',
 						type: 'options',
 						options: OPTIN_STATUS_OPTIONS,
 						default: 2,
-					},
-					{
-						displayName: 'Owner ID',
-						name: 'owner_id',
-						type: 'number',
-						default: 0,
-						description: 'WordPress user ID of the contact owner',
 					},
 					{
 						displayName: 'Tags',
@@ -351,7 +374,6 @@ export class Groundhogg implements INodeType {
 				default: {},
 				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
 				options: [
-					{ displayName: 'Primary Phone', name: 'primary_phone', type: 'string', default: '' },
 					{ displayName: 'Mobile Phone', name: 'mobile_phone', type: 'string', default: '' },
 					{ displayName: 'Street Address 1', name: 'street_address_1', type: 'string', default: '' },
 					{ displayName: 'Street Address 2', name: 'street_address_2', type: 'string', default: '' },
@@ -1153,6 +1175,34 @@ export class Groundhogg implements INodeType {
 				}
 			},
 
+			async getOwners(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				try {
+					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
+					const requestOptions: any = {
+						method: 'GET',
+						uri: `${baseUrl}/wp-json/wp/v2/users`,
+						headers: {
+							'Gh-Public-Key': publicKey,
+							'Gh-Token': token,
+						},
+						qs: { per_page: '100', context: 'edit' },
+						json: true,
+					};
+					const users = await this.helpers.request(requestOptions);
+					if (!Array.isArray(users)) return [];
+					return users
+						.map((u: any) => ({
+							name: u.name || u.slug || u.username || `User ${u.id}`,
+							value: String(u.id),
+						}))
+						.sort((a: INodePropertyOptions, b: INodePropertyOptions) =>
+							String(a.name).localeCompare(String(b.name)),
+						);
+				} catch {
+					return [];
+				}
+			},
+
 			async getAllMetaKeys(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const seen = new Set<string>();
 				const options: INodePropertyOptions[] = [];
@@ -1208,20 +1258,32 @@ export class Groundhogg implements INodeType {
 				if (resource === 'contact') {
 					if (operation === 'create') {
 						const email = this.getNodeParameter('email', i) as string;
+						const firstName = this.getNodeParameter('first_name', i, '') as string;
+						const lastName = this.getNodeParameter('last_name', i, '') as string;
+						const phone = this.getNodeParameter('primary_phone', i, '') as string;
+						const ownerId = this.getNodeParameter('owner_id', i, '') as string | number;
 						const additional = this.getNodeParameter('contactAdditionalFields', i) as IDataObject;
 						const metaFields = this.getNodeParameter('contactMetaFields', i) as IDataObject;
 
 						const data: Record<string, any> = { email };
 						const meta: Record<string, any> = {};
 
-						// Core data fields
-						for (const field of ['first_name', 'last_name', 'optin_status', 'owner_id']) {
-							if (additional[field] !== undefined && additional[field] !== '' && additional[field] !== 0) {
-								data[field] = additional[field];
-							}
+						// Top-level core fields
+						if (firstName) data.first_name = firstName;
+						if (lastName) data.last_name = lastName;
+						if (ownerId !== '' && ownerId !== 0 && ownerId !== '0') {
+							data.owner_id = typeof ownerId === 'string' ? parseInt(ownerId, 10) || ownerId : ownerId;
 						}
 
-						// Meta fields
+						// Additional fields collection (optin_status only — tags handled below)
+						if (additional.optin_status !== undefined && additional.optin_status !== '') {
+							data.optin_status = additional.optin_status;
+						}
+
+						// Top-level phone
+						if (phone) meta.primary_phone = phone;
+
+						// Meta fields collection
 						for (const [key, value] of Object.entries(metaFields)) {
 							if (value !== undefined && value !== null && value !== '') {
 								meta[key] = key === 'birthday' ? normalizeBirthday(value) : value;
