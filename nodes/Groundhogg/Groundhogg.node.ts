@@ -127,6 +127,24 @@ function applyCustomMetaFields(
 	}
 }
 
+function ensureLineBreaks(content: string): string {
+	if (!content) return content;
+	// If the value already contains line-break or block-level HTML, trust the
+	// caller's formatting and leave it alone.
+	if (/<br\s*\/?>/i.test(content) || /<\/?(p|div|ul|ol|li|h[1-6]|blockquote)\b/i.test(content)) {
+		return content;
+	}
+	return content.replace(/\r\n|\r|\n/g, '<br>\n');
+}
+
+function todayEndOfDayMySql(): string {
+	const now = new Date();
+	const y = now.getFullYear();
+	const m = String(now.getMonth() + 1).padStart(2, '0');
+	const d = String(now.getDate()).padStart(2, '0');
+	return `${y}-${m}-${d} 23:59:59`;
+}
+
 function normalizeBirthday(value: unknown): string | undefined {
 	if (value === undefined || value === null || value === '') return undefined;
 	const str = String(value).trim();
@@ -1594,7 +1612,7 @@ export class Groundhogg implements INodeType {
 						const data: Record<string, any> = {
 							object_id: objectId,
 							object_type: 'contact',
-							content,
+							content: ensureLineBreaks(content),
 						};
 
 						for (const field of ['summary', 'type', 'context']) {
@@ -1641,7 +1659,7 @@ export class Groundhogg implements INodeType {
 						const body: Record<string, any> = { data: {} };
 						for (const [key, value] of Object.entries(updateFields)) {
 							if (value !== undefined && value !== '') {
-								body.data[key] = value;
+								body.data[key] = key === 'content' ? ensureLineBreaks(String(value)) : value;
 							}
 						}
 						responseData = await groundhoggApiRequest.call(
@@ -1674,8 +1692,16 @@ export class Groundhogg implements INodeType {
 
 						for (const field of ['content', 'due_date', 'user_id', 'type']) {
 							if (additional[field] !== undefined && additional[field] !== '' && additional[field] !== 0) {
-								data[field] = additional[field];
+								data[field] = field === 'content'
+									? ensureLineBreaks(String(additional[field]))
+									: additional[field];
 							}
+						}
+
+						// Default due_date to end-of-today if the user didn't supply one —
+						// otherwise Groundhogg stores 0 and shows a date decades in the past.
+						if (!data.due_date) {
+							data.due_date = todayEndOfDayMySql();
 						}
 
 						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
@@ -1720,7 +1746,7 @@ export class Groundhogg implements INodeType {
 						const body: Record<string, any> = { data: {} };
 						for (const [key, value] of Object.entries(updateFields)) {
 							if (value !== undefined && value !== '' && value !== 0) {
-								body.data[key] = value;
+								body.data[key] = key === 'content' ? ensureLineBreaks(String(value)) : value;
 							}
 						}
 						responseData = await groundhoggApiRequest.call(
