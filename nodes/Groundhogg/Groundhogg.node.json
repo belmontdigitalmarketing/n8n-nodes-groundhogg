@@ -1,0 +1,18 @@
+{
+  "node": "n8n-nodes-base.groundhogg",
+  "nodeVersion": "1.0",
+  "codexVersion": "1.0",
+  "categories": ["Marketing & Sales"],
+  "resources": {
+    "credentialDocumentation": [
+      {
+        "url": "https://help.groundhogg.io/category/514-rest-api-v4"
+      }
+    ],
+    "primaryDocumentation": [
+      {
+        "url": "https://help.groundhogg.io/category/514-rest-api-v4"
+      }
+    ]
+  }
+}

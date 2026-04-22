@@ -1,0 +1,62 @@
+{
+  "name": "n8n-nodes-groundhogg",
+  "version": "0.1.0",
+  "description": "n8n community node for the Groundhogg CRM REST API v4",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "groundhogg",
+    "crm",
+    "wordpress",
+    "marketing-automation"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/belmontdigitalmarketing/n8n-nodes-groundhogg",
+  "author": {
+    "name": "Belmont Digital Marketing",
+    "email": "matthias@belmontdigitalmarketing.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/belmontdigitalmarketing/n8n-nodes-groundhogg.git"
+  },
+  "bugs": {
+    "url": "https://github.com/belmontdigitalmarketing/n8n-nodes-groundhogg/issues"
+  },
+  "engines": {
+    "node": ">=18.10",
+    "pnpm": ">=9.1"
+  },
+  "packageManager": "pnpm@9.1.4",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && gulp build:icons",
+    "dev": "tsc --watch",
+    "format": "prettier nodes credentials --write",
+    "lint": "eslint nodes credentials package.json",
+    "lintfix": "eslint nodes credentials package.json --fix",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/GroundhoggApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Groundhogg/Groundhogg.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "gulp": "^4.0.2",
+    "n8n-workflow": "~1.10.0",
+    "prettier": "^3.2.5",
+    "typescript": "~5.2.2"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}
