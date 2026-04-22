@@ -1527,11 +1527,12 @@ export class Groundhogg implements INodeType {
 					if (operation === 'create') {
 						const tagName = this.getNodeParameter('tagName', i) as string;
 						const tagDescription = this.getNodeParameter('tagDescription', i) as string;
-						const body: Record<string, any> = { tag_name: tagName };
-						if (tagDescription) body.tag_description = tagDescription;
+						const data: Record<string, any> = { tag_name: tagName };
+						if (tagDescription) data.tag_description = tagDescription;
 
+						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
 						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, '/tags', publicKey, token, body,
+							this, 'POST', baseUrl, '/tags', publicKey, token, { data },
 						);
 						if (responseData?.item) responseData = responseData.item;
 
@@ -1590,7 +1591,7 @@ export class Groundhogg implements INodeType {
 						const content = this.getNodeParameter('noteContent', i) as string;
 						const additional = this.getNodeParameter('noteAdditionalFields', i) as IDataObject;
 
-						const body: Record<string, any> = {
+						const data: Record<string, any> = {
 							object_id: objectId,
 							object_type: 'contact',
 							content,
@@ -1598,12 +1599,13 @@ export class Groundhogg implements INodeType {
 
 						for (const field of ['summary', 'type', 'context']) {
 							if (additional[field] !== undefined && additional[field] !== '') {
-								body[field] = additional[field];
+								data[field] = additional[field];
 							}
 						}
 
+						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
 						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, '/notes', publicKey, token, body,
+							this, 'POST', baseUrl, '/notes', publicKey, token, { data },
 						);
 						if (responseData?.item) responseData = responseData.item;
 
@@ -1664,20 +1666,21 @@ export class Groundhogg implements INodeType {
 						const objectId = this.getNodeParameter('objectId', i) as number;
 						const additional = this.getNodeParameter('taskAdditionalFields', i) as IDataObject;
 
-						const body: Record<string, any> = {
+						const data: Record<string, any> = {
 							summary,
 							object_type: 'contact',
 						};
-						if (objectId) body.object_id = objectId;
+						if (objectId) data.object_id = objectId;
 
 						for (const field of ['content', 'due_date', 'user_id', 'type']) {
 							if (additional[field] !== undefined && additional[field] !== '' && additional[field] !== 0) {
-								body[field] = additional[field];
+								data[field] = additional[field];
 							}
 						}
 
+						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
 						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, '/tasks', publicKey, token, body,
+							this, 'POST', baseUrl, '/tasks', publicKey, token, { data },
 						);
 						if (responseData?.item) responseData = responseData.item;
 
