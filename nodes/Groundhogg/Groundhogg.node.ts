@@ -7,7 +7,7 @@ import {
 	INodeTypeDescription,
 	NodeOperationError,
 } from 'n8n-workflow';
-import type { IDataObject, ResourceMapperField, ResourceMapperFields } from 'n8n-workflow';
+import type { IDataObject } from 'n8n-workflow';
 import { createHash } from 'crypto';
 
 // ============================================================
@@ -95,23 +95,21 @@ async function groundhoggApiRequest(
 	return await this.helpers.request(requestOptions);
 }
 
-function applyResourceMapperFields(
+function applyCustomMetaFields(
 	context: IExecuteFunctions,
 	meta: Record<string, any>,
 	paramName: string,
 	itemIndex: number,
 ) {
-	try {
-		const mappingValues = context.getNodeParameter(`${paramName}.value`, itemIndex) as IDataObject;
-		if (mappingValues) {
-			for (const [key, value] of Object.entries(mappingValues)) {
-				if (value !== undefined && value !== null && value !== '') {
-					meta[key] = value;
-				}
-			}
+	const collection = context.getNodeParameter(paramName, itemIndex, {}) as IDataObject;
+	const entries = (collection.field as IDataObject[] | undefined) ?? [];
+	for (const entry of entries) {
+		const key = (entry.key as string | undefined)?.trim();
+		if (!key) continue;
+		const value = entry.value;
+		if (value !== undefined && value !== null && value !== '') {
+			meta[key] = value;
 		}
-	} catch {
-		// No custom fields set - ignore
 	}
 }
 
@@ -342,20 +340,37 @@ export class Groundhogg implements INodeType {
 			},
 			{
 				displayName: 'Custom Fields',
-				name: 'contactCustomFields',
-				type: 'resourceMapper',
-				noDataExpression: true,
-				default: { mappingMode: 'defineBelow', value: null },
+				name: 'contactCustomMeta',
+				type: 'fixedCollection',
+				typeOptions: { multipleValues: true, sortable: true },
+				default: {},
+				placeholder: 'Add Custom Field',
+				description:
+					'Set Groundhogg custom field values. Field list is pulled from your Groundhogg custom field configuration (Groundhogg → Settings → Custom Fields).',
 				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
-				typeOptions: {
-					resourceMapper: {
-						resourceMapperMethod: 'getContactCustomColumns',
-						mode: 'add',
-						fieldWords: { singular: 'field', plural: 'fields' },
-						addAllFields: false,
-						multiKeyMatch: false,
+				options: [
+					{
+						name: 'field',
+						displayName: 'Field',
+						values: [
+							{
+								displayName: 'Field Name or ID',
+								name: 'key',
+								type: 'options',
+								typeOptions: { loadOptionsMethod: 'getCustomFieldKeys' },
+								default: '',
+								description:
+									'The Groundhogg custom field to set. Choose from the list or specify an ID using an expression.',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+							},
+						],
 					},
-				},
+				],
 			},
 
 			// --- Contact: Get ---
@@ -588,20 +603,37 @@ export class Groundhogg implements INodeType {
 			},
 			{
 				displayName: 'Custom Fields',
-				name: 'contactUpdateCustomFields',
-				type: 'resourceMapper',
-				noDataExpression: true,
-				default: { mappingMode: 'defineBelow', value: null },
+				name: 'contactUpdateCustomMeta',
+				type: 'fixedCollection',
+				typeOptions: { multipleValues: true, sortable: true },
+				default: {},
+				placeholder: 'Add Custom Field',
+				description:
+					'Set Groundhogg custom field values. Field list is pulled from your Groundhogg custom field configuration (Groundhogg → Settings → Custom Fields).',
 				displayOptions: { show: { resource: ['contact'], operation: ['update'] } },
-				typeOptions: {
-					resourceMapper: {
-						resourceMapperMethod: 'getContactCustomColumns',
-						mode: 'update',
-						fieldWords: { singular: 'field', plural: 'fields' },
-						addAllFields: false,
-						multiKeyMatch: false,
+				options: [
+					{
+						name: 'field',
+						displayName: 'Field',
+						values: [
+							{
+								displayName: 'Field Name or ID',
+								name: 'key',
+								type: 'options',
+								typeOptions: { loadOptionsMethod: 'getCustomFieldKeys' },
+								default: '',
+								description:
+									'The Groundhogg custom field to set. Choose from the list or specify an ID using an expression.',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+							},
+						],
 					},
-				},
+				],
 			},
 
 			// ============================================================
@@ -1053,32 +1085,22 @@ export class Groundhogg implements INodeType {
 					return [];
 				}
 			},
-		},
 
-		resourceMapping: {
-			async getContactCustomColumns(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+			async getCustomFieldKeys(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				try {
 					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
 					const response = await groundhoggApiRequest.call(
 						this, 'GET', baseUrl, '/fields', publicKey, token,
 					);
-					if (!response?.items) return { fields: [] };
-
-					const fields: ResourceMapperField[] = response.items
+					if (!response?.items) return [];
+					return response.items
 						.filter((f: any) => !KNOWN_META_KEYS.includes(f.value || f.id))
 						.map((f: any) => ({
-							id: f.value || f.id,
-							displayName: f.label || f.value || f.id,
-							required: false,
-							defaultMatch: false,
-							display: true,
-							type: 'string' as const,
-							canBeUsedToMatch: false,
+							name: f.label || f.value || f.id,
+							value: f.value || f.id,
 						}));
-
-					return { fields };
 				} catch {
-					return { fields: [] };
+					return [];
 				}
 			},
 		},
@@ -1125,8 +1147,8 @@ export class Groundhogg implements INodeType {
 							}
 						}
 
-						// Custom fields from ResourceMapper
-						applyResourceMapperFields(this, meta, 'contactCustomFields', i);
+						// Custom / meta fields selected via dropdown
+						applyCustomMetaFields(this, meta, 'contactCustomMeta', i);
 
 						const body: Record<string, any> = { data };
 						if (Object.keys(meta).length > 0) body.meta = meta;
@@ -1231,7 +1253,7 @@ export class Groundhogg implements INodeType {
 							}
 						}
 
-						applyResourceMapperFields(this, meta, 'contactUpdateCustomFields', i);
+						applyCustomMetaFields(this, meta, 'contactUpdateCustomMeta', i);
 
 						const body: Record<string, any> = {};
 						if (Object.keys(data).length > 0) body.data = data;
