@@ -147,13 +147,20 @@ function normalizeBirthday(value: unknown): string | undefined {
 	return str;
 }
 
-function parseTagInput(input: string): (number | string)[] {
-	if (!input || !input.trim()) return [];
-	return input.split(',').map((t) => {
-		const trimmed = t.trim();
-		const num = parseInt(trimmed, 10);
-		return isNaN(num) ? trimmed : num;
-	}).filter((t) => t !== '' && t !== 0);
+function parseTagInput(input: string | string[] | undefined | null): (number | string)[] {
+	if (input === undefined || input === null) return [];
+	const raw: string[] = Array.isArray(input)
+		? input.map((t) => String(t))
+		: typeof input === 'string' && input.trim()
+			? input.split(',')
+			: [];
+	return raw
+		.map((t) => {
+			const trimmed = t.trim();
+			const num = parseInt(trimmed, 10);
+			return isNaN(num) ? trimmed : num;
+		})
+		.filter((t) => t !== '' && t !== 0);
 }
 
 // ============================================================
@@ -667,10 +674,12 @@ export class Groundhogg implements INodeType {
 			{
 				displayName: 'Remove Tags',
 				name: 'contactRemoveTags',
-				type: 'string',
-				default: '',
+				type: 'multiOptions',
+				typeOptions: { loadOptionsMethod: 'getTags' },
+				default: [],
 				displayOptions: { show: { resource: ['contact'], operation: ['update'] } },
-				description: 'Comma-separated list of tag IDs to remove',
+				description:
+					'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically.',
 			},
 			{
 				displayName: 'Custom Fields',
@@ -730,13 +739,15 @@ export class Groundhogg implements INodeType {
 				description: 'Comma-separated list of tag IDs or tag names to apply. Non-existing tag names will be auto-created.',
 			},
 			{
-				displayName: 'Tag IDs',
+				displayName: 'Tag Names or IDs',
 				name: 'tagIds',
-				type: 'string',
-				default: '',
+				type: 'multiOptions',
+				typeOptions: { loadOptionsMethod: 'getTags' },
+				default: [],
 				required: true,
 				displayOptions: { show: { resource: ['contactTag'], operation: ['remove'] } },
-				description: 'Comma-separated list of tag IDs to remove',
+				description:
+					'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically.',
 			},
 
 			// ============================================================
@@ -1394,7 +1405,7 @@ export class Groundhogg implements INodeType {
 						const updateFields = this.getNodeParameter('contactUpdateFields', i) as IDataObject;
 						const updateMetaFields = this.getNodeParameter('contactUpdateMetaFields', i) as IDataObject;
 						const addTags = this.getNodeParameter('contactAddTags', i) as string;
-						const removeTags = this.getNodeParameter('contactRemoveTags', i) as string;
+						const removeTags = this.getNodeParameter('contactRemoveTags', i, []) as string | string[];
 
 						const data: Record<string, any> = {};
 						const meta: Record<string, any> = {};
@@ -1417,7 +1428,8 @@ export class Groundhogg implements INodeType {
 						if (Object.keys(data).length > 0) body.data = data;
 						if (Object.keys(meta).length > 0) body.meta = meta;
 						if (addTags && addTags.trim()) body.add_tags = parseTagInput(addTags);
-						if (removeTags && removeTags.trim()) body.remove_tags = parseTagInput(removeTags);
+						const removeTagList = parseTagInput(removeTags);
+						if (removeTagList.length > 0) body.remove_tags = removeTagList;
 
 						responseData = await groundhoggApiRequest.call(
 							this, 'PUT', baseUrl, `/contacts/${contactId}`, publicKey, token, body,
@@ -1446,7 +1458,7 @@ export class Groundhogg implements INodeType {
 						);
 
 					} else if (operation === 'remove') {
-						const tagInput = this.getNodeParameter('tagIds', i) as string;
+						const tagInput = this.getNodeParameter('tagIds', i) as string | string[];
 						const tags = parseTagInput(tagInput);
 						responseData = await groundhoggApiRequest.call(
 							this, 'DELETE', baseUrl, `/contacts/${contactId}/tags`, publicKey, token, tags as any,
