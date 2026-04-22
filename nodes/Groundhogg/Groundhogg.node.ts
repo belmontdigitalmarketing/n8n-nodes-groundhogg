@@ -449,6 +449,59 @@ export class Groundhogg implements INodeType {
 						default: 0,
 						description: 'Filter by owner WordPress user ID',
 					},
+					{
+						displayName: 'Meta Filters',
+						name: 'meta_filters',
+						type: 'fixedCollection',
+						typeOptions: { multipleValues: true, sortable: true },
+						default: {},
+						placeholder: 'Add Meta Filter',
+						description:
+							'Filter contacts by meta / custom field values. Multiple filters are ANDed together. Works on built-in meta (company_name, primary_phone, etc.) and on Groundhogg custom fields (use the field internal name).',
+						options: [
+							{
+								name: 'filter',
+								displayName: 'Filter',
+								values: [
+									{
+										displayName: 'Meta Key',
+										name: 'key',
+										type: 'string',
+										default: '',
+										placeholder: 'e.g. company_name',
+										description: 'The meta field internal name',
+									},
+									{
+										displayName: 'Operator',
+										name: 'compare',
+										type: 'options',
+										default: '=',
+										options: [
+											{ name: 'Equals', value: '=' },
+											{ name: 'Not Equal', value: '!=' },
+											{ name: 'Contains', value: 'LIKE' },
+											{ name: 'Does Not Contain', value: 'NOT LIKE' },
+											{ name: 'In (Comma-Separated)', value: 'IN' },
+											{ name: 'Not In (Comma-Separated)', value: 'NOT IN' },
+											{ name: 'Exists (Any Value)', value: 'EXISTS' },
+											{ name: 'Does Not Exist', value: 'NOT EXISTS' },
+										],
+									},
+									{
+										displayName: 'Value',
+										name: 'value',
+										type: 'string',
+										default: '',
+										description:
+											'Value to match. For Contains, wrap with % for wildcard (%acme%). For In / Not In, pass comma-separated values. Ignored for Exists / Does Not Exist.',
+										displayOptions: {
+											hide: { compare: ['EXISTS', 'NOT EXISTS'] },
+										},
+									},
+								],
+							},
+						],
+					},
 				],
 			},
 
@@ -1121,6 +1174,31 @@ export class Groundhogg implements INodeType {
 							const tagIds = (filters.tags_exclude as string).split(',').map((t) => t.trim());
 							tagIds.forEach((id, idx) => { qs[`query[tags_exclude][${idx}]`] = id; });
 						}
+
+						// Meta filters — WP-style meta_query clauses
+						const metaFilters = filters.meta_filters as IDataObject | undefined;
+						const metaEntries = (metaFilters?.filter as IDataObject[] | undefined) ?? [];
+						metaEntries.forEach((entry, idx) => {
+							const key = (entry.key as string | undefined)?.trim();
+							if (!key) return;
+							const compare = (entry.compare as string | undefined) || '=';
+							const prefix = `query[meta_query][${idx}]`;
+							qs[`${prefix}[key]`] = key;
+							qs[`${prefix}[compare]`] = compare;
+
+							if (compare === 'EXISTS' || compare === 'NOT EXISTS') return;
+
+							const rawValue = (entry.value as string | undefined) ?? '';
+							if (compare === 'IN' || compare === 'NOT IN') {
+								rawValue
+									.split(',')
+									.map((v) => v.trim())
+									.filter((v) => v.length > 0)
+									.forEach((v, vIdx) => { qs[`${prefix}[value][${vIdx}]`] = v; });
+							} else {
+								qs[`${prefix}[value]`] = rawValue;
+							}
+						});
 
 						responseData = await groundhoggApiRequest.call(
 							this, 'GET', baseUrl, '/contacts', publicKey, token, undefined, qs,
