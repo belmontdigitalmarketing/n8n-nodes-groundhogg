@@ -351,9 +351,10 @@ export class Groundhogg implements INodeType {
 					{
 						displayName: 'Birthday',
 						name: 'birthday',
-						type: 'dateTime',
+						type: 'string',
 						default: '',
-						description: 'Stored by Groundhogg as YYYY-MM-DD. The node normalizes ISO / MM-DD-YYYY / MM/DD/YYYY inputs automatically.',
+						placeholder: 'YYYY-MM-DD',
+						description: 'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
 					},
 					{
 						displayName: 'Notes',
@@ -604,9 +605,10 @@ export class Groundhogg implements INodeType {
 					{
 						displayName: 'Birthday',
 						name: 'birthday',
-						type: 'dateTime',
+						type: 'string',
 						default: '',
-						description: 'Stored by Groundhogg as YYYY-MM-DD. The node normalizes ISO / MM-DD-YYYY / MM/DD/YYYY inputs automatically.',
+						placeholder: 'YYYY-MM-DD',
+						description: 'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
 					},
 					{
 						displayName: 'Notes',
