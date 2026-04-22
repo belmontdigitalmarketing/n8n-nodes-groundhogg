@@ -532,16 +532,16 @@ export class Groundhogg implements INodeType {
 										displayName: 'Operator',
 										name: 'compare',
 										type: 'options',
-										default: '=',
+										default: 'EQ',
 										options: [
-											{ name: 'Equals', value: '=' },
-											{ name: 'Not Equal', value: '!=' },
+											{ name: 'Equals', value: 'EQ' },
+											{ name: 'Not Equal', value: 'NEQ' },
 											{ name: 'Contains', value: 'LIKE' },
-											{ name: 'Does Not Contain', value: 'NOT LIKE' },
+											{ name: 'Does Not Contain', value: 'NOT_LIKE' },
 											{ name: 'In (Comma-Separated)', value: 'IN' },
-											{ name: 'Not In (Comma-Separated)', value: 'NOT IN' },
+											{ name: 'Not In (Comma-Separated)', value: 'NOT_IN' },
 											{ name: 'Exists (Any Value)', value: 'EXISTS' },
-											{ name: 'Does Not Exist', value: 'NOT EXISTS' },
+											{ name: 'Does Not Exist', value: 'NOT_EXISTS' },
 										],
 									},
 									{
@@ -550,9 +550,9 @@ export class Groundhogg implements INodeType {
 										type: 'string',
 										default: '',
 										description:
-											'Value to match. For Contains, wrap with % for wildcard (%acme%). For In / Not In, pass comma-separated values. Ignored for Exists / Does Not Exist.',
+											'Value to match. For Contains / Does Not Contain, the node wraps the value with % wildcards automatically — you can still include your own %. For In / Not In, pass a comma-separated list. Ignored for Exists / Does Not Exist.',
 										displayOptions: {
-											hide: { compare: ['EXISTS', 'NOT EXISTS'] },
+											hide: { compare: ['EXISTS', 'NOT_EXISTS'] },
 										},
 									},
 								],
@@ -1279,25 +1279,40 @@ export class Groundhogg implements INodeType {
 						}
 
 						// Meta filters — WP-style meta_query clauses
+						const operatorMap: Record<string, string> = {
+							EQ: '=',
+							NEQ: '!=',
+							LIKE: 'LIKE',
+							NOT_LIKE: 'NOT LIKE',
+							IN: 'IN',
+							NOT_IN: 'NOT IN',
+							EXISTS: 'EXISTS',
+							NOT_EXISTS: 'NOT EXISTS',
+						};
 						const metaFilters = filters.meta_filters as IDataObject | undefined;
 						const metaEntries = (metaFilters?.filter as IDataObject[] | undefined) ?? [];
 						metaEntries.forEach((entry, idx) => {
 							const key = (entry.key as string | undefined)?.trim();
 							if (!key) return;
-							const compare = (entry.compare as string | undefined) || '=';
+							const uiCompare = (entry.compare as string | undefined) || 'EQ';
+							const sqlCompare = operatorMap[uiCompare] ?? uiCompare;
 							const prefix = `query[meta_query][${idx}]`;
 							qs[`${prefix}[key]`] = key;
-							qs[`${prefix}[compare]`] = compare;
+							qs[`${prefix}[compare]`] = sqlCompare;
 
-							if (compare === 'EXISTS' || compare === 'NOT EXISTS') return;
+							if (sqlCompare === 'EXISTS' || sqlCompare === 'NOT EXISTS') return;
 
 							const rawValue = (entry.value as string | undefined) ?? '';
-							if (compare === 'IN' || compare === 'NOT IN') {
+							if (sqlCompare === 'IN' || sqlCompare === 'NOT IN') {
 								rawValue
 									.split(',')
 									.map((v) => v.trim())
 									.filter((v) => v.length > 0)
 									.forEach((v, vIdx) => { qs[`${prefix}[value][${vIdx}]`] = v; });
+							} else if (sqlCompare === 'LIKE' || sqlCompare === 'NOT LIKE') {
+								const trimmed = rawValue.trim();
+								const pattern = trimmed.includes('%') ? trimmed : `%${trimmed}%`;
+								qs[`${prefix}[value]`] = pattern;
 							} else {
 								qs[`${prefix}[value]`] = rawValue;
 							}
