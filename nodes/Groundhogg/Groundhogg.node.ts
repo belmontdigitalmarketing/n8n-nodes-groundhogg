@@ -113,6 +113,26 @@ function applyCustomMetaFields(
 	}
 }
 
+function normalizeBirthday(value: unknown): string | undefined {
+	if (value === undefined || value === null || value === '') return undefined;
+	const str = String(value).trim();
+	const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+	if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+	const slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+	if (slashMatch) {
+		const [, m, d, y] = slashMatch;
+		return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+	}
+	const parsed = new Date(str);
+	if (!isNaN(parsed.getTime())) {
+		const y = parsed.getUTCFullYear();
+		const m = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+		const d = String(parsed.getUTCDate()).padStart(2, '0');
+		return `${y}-${m}-${d}`;
+	}
+	return str;
+}
+
 function parseTagInput(input: string): (number | string)[] {
 	if (!input || !input.trim()) return [];
 	return input.split(',').map((t) => {
@@ -328,7 +348,13 @@ export class Groundhogg implements INodeType {
 					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
 					{ displayName: 'Job Title', name: 'job_title', type: 'string', default: '' },
 					{ displayName: 'Lead Source', name: 'lead_source', type: 'string', default: '' },
-					{ displayName: 'Birthday', name: 'birthday', type: 'string', default: '', description: 'Date in YYYY-MM-DD format' },
+					{
+						displayName: 'Birthday',
+						name: 'birthday',
+						type: 'dateTime',
+						default: '',
+						description: 'Stored by Groundhogg as YYYY-MM-DD. The node normalizes ISO / MM-DD-YYYY / MM/DD/YYYY inputs automatically.',
+					},
 					{
 						displayName: 'Notes',
 						name: 'notes',
@@ -575,7 +601,13 @@ export class Groundhogg implements INodeType {
 					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
 					{ displayName: 'Job Title', name: 'job_title', type: 'string', default: '' },
 					{ displayName: 'Lead Source', name: 'lead_source', type: 'string', default: '' },
-					{ displayName: 'Birthday', name: 'birthday', type: 'string', default: '', description: 'Date in YYYY-MM-DD format' },
+					{
+						displayName: 'Birthday',
+						name: 'birthday',
+						type: 'dateTime',
+						default: '',
+						description: 'Stored by Groundhogg as YYYY-MM-DD. The node normalizes ISO / MM-DD-YYYY / MM/DD/YYYY inputs automatically.',
+					},
 					{
 						displayName: 'Notes',
 						name: 'notes',
@@ -1143,7 +1175,7 @@ export class Groundhogg implements INodeType {
 						// Meta fields
 						for (const [key, value] of Object.entries(metaFields)) {
 							if (value !== undefined && value !== null && value !== '') {
-								meta[key] = value;
+								meta[key] = key === 'birthday' ? normalizeBirthday(value) : value;
 							}
 						}
 
@@ -1249,7 +1281,7 @@ export class Groundhogg implements INodeType {
 
 						for (const [key, value] of Object.entries(updateMetaFields)) {
 							if (value !== undefined && value !== null && value !== '') {
-								meta[key] = value;
+								meta[key] = key === 'birthday' ? normalizeBirthday(value) : value;
 							}
 						}
 
