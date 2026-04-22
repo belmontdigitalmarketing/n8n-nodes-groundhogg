@@ -40,12 +40,26 @@ const ACTIVITY_TYPE_OPTIONS: INodePropertyOptions[] = [
 	{ name: 'Complaint', value: 'complaint' },
 ];
 
-const KNOWN_META_KEYS = [
-	'primary_phone', 'mobile_phone', 'primary_phone_extension',
-	'street_address_1', 'street_address_2', 'city', 'region', 'postal_zip', 'country',
-	'company_name', 'job_title', 'lead_source', 'birthday', 'notes',
-	'ip_address', 'time_zone', 'profile_picture',
-];
+const KNOWN_META_LABELS: Record<string, string> = {
+	primary_phone: 'Primary Phone',
+	mobile_phone: 'Mobile Phone',
+	primary_phone_extension: 'Primary Phone Extension',
+	street_address_1: 'Street Address 1',
+	street_address_2: 'Street Address 2',
+	city: 'City',
+	region: 'State/Region',
+	postal_zip: 'Postal/ZIP Code',
+	country: 'Country',
+	company_name: 'Company Name',
+	job_title: 'Job Title',
+	lead_source: 'Lead Source',
+	birthday: 'Birthday',
+	notes: 'Notes',
+	ip_address: 'IP Address',
+	time_zone: 'Time Zone',
+	profile_picture: 'Profile Picture',
+};
+const KNOWN_META_KEYS = Object.keys(KNOWN_META_LABELS);
 
 // ============================================================
 // Shared Helpers
@@ -508,10 +522,11 @@ export class Groundhogg implements INodeType {
 									{
 										displayName: 'Meta Key',
 										name: 'key',
-										type: 'string',
+										type: 'options',
+										typeOptions: { loadOptionsMethod: 'getAllMetaKeys' },
 										default: '',
-										placeholder: 'e.g. company_name',
-										description: 'The meta field internal name',
+										description:
+											'The meta field to filter on. Includes both built-in contact meta (primary_phone, company_name, birthday, etc.) and Groundhogg custom fields. Use an expression to pass a key that is not in this list.',
 									},
 									{
 										displayName: 'Operator',
@@ -1136,6 +1151,38 @@ export class Groundhogg implements INodeType {
 				} catch {
 					return [];
 				}
+			},
+
+			async getAllMetaKeys(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				const seen = new Set<string>();
+				const options: INodePropertyOptions[] = [];
+
+				try {
+					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
+					const response = await groundhoggApiRequest.call(
+						this, 'GET', baseUrl, '/fields', publicKey, token,
+					);
+					for (const f of (response?.items ?? []) as any[]) {
+						const value = (f.value || f.id) as string | undefined;
+						if (!value || seen.has(value)) continue;
+						const label = f.label || KNOWN_META_LABELS[value] || value;
+						options.push({ name: label, value });
+						seen.add(value);
+					}
+				} catch {
+					// fall through to built-ins
+				}
+
+				// Ensure all built-in meta keys are present even if /fields returned nothing
+				for (const [value, name] of Object.entries(KNOWN_META_LABELS)) {
+					if (!seen.has(value)) {
+						options.push({ name, value });
+						seen.add(value);
+					}
+				}
+
+				options.sort((a, b) => a.name.localeCompare(b.name));
+				return options;
 			},
 		},
 	};
