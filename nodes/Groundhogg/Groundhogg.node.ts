@@ -789,9 +789,40 @@ export class Groundhogg implements INodeType {
 				name: 'limit',
 				type: 'number',
 				default: 50,
-				typeOptions: { minValue: 1, maxValue: 100 },
+				typeOptions: { minValue: 1, maxValue: 500 },
 				displayOptions: { show: { resource: ['tag'], operation: ['getAll'] } },
 				description: 'Max number of results to return',
+			},
+			{
+				displayName: 'Filters',
+				name: 'tagFilters',
+				type: 'collection',
+				placeholder: 'Add Filter',
+				default: {},
+				displayOptions: { show: { resource: ['tag'], operation: ['getAll'] } },
+				options: [
+					{
+						displayName: 'Search',
+						name: 'search',
+						type: 'string',
+						default: '',
+						description: 'Free-text search across tag name, slug and description',
+					},
+					{
+						displayName: 'Tag Name',
+						name: 'tag_name',
+						type: 'string',
+						default: '',
+						description: 'Filter by exact tag name',
+					},
+					{
+						displayName: 'Tag Slug',
+						name: 'tag_slug',
+						type: 'string',
+						default: '',
+						description: 'Filter by exact tag slug',
+					},
+				],
 			},
 
 			// --- Tag: Update ---
@@ -1154,15 +1185,19 @@ export class Groundhogg implements INodeType {
 					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
 					const response = await groundhoggApiRequest.call(
 						this, 'GET', baseUrl, '/tags', publicKey, token,
-						undefined, { limit: '100' },
+						undefined, { limit: '500' },
 					);
-					if (response?.items) {
-						return response.items.map((tag: any) => ({
-							name: tag.tag_name || `Tag ${tag.tag_id}`,
-							value: tag.tag_id.toString(),
-						}));
-					}
-					return [];
+					const items = (response?.items ?? []) as any[];
+					return items
+						.map((tag: any) => {
+							const data = tag.data ?? tag;
+							const id = data.tag_id ?? tag.ID ?? tag.id;
+							if (id === undefined || id === null) return null;
+							const name = data.tag_name || data.tag_slug || `Tag ${id}`;
+							return { name, value: String(id) } as INodePropertyOptions;
+						})
+						.filter((o: INodePropertyOptions | null): o is INodePropertyOptions => o !== null)
+						.sort((a, b) => String(a.name).localeCompare(String(b.name)));
 				} catch {
 					return [];
 				}
@@ -1495,9 +1530,15 @@ export class Groundhogg implements INodeType {
 
 					} else if (operation === 'getAll') {
 						const limit = this.getNodeParameter('limit', i) as number;
+						const tagFilters = this.getNodeParameter('tagFilters', i, {}) as IDataObject;
+						const qs: Record<string, string> = { limit: limit.toString() };
+
+						if (tagFilters.search) qs['search'] = tagFilters.search as string;
+						if (tagFilters.tag_name) qs['query[tag_name]'] = tagFilters.tag_name as string;
+						if (tagFilters.tag_slug) qs['query[tag_slug]'] = tagFilters.tag_slug as string;
+
 						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, '/tags', publicKey, token,
-							undefined, { limit: limit.toString() },
+							this, 'GET', baseUrl, '/tags', publicKey, token, undefined, qs,
 						);
 						for (const item of (responseData?.items || [])) {
 							returnData.push({ json: item });
