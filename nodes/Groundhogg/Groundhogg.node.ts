@@ -1500,9 +1500,23 @@ export class Groundhogg implements INodeType {
 						);
 
 					} else if (operation === 'get') {
-						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, `/contacts/${contactId}/tags`, publicKey, token,
+						// Fetch the full contact so each tag comes back with name/slug/etc.,
+						// not just the ID list that /contacts/{id}/tags returns.
+						const contactResponse = await groundhoggApiRequest.call(
+							this, 'GET', baseUrl, `/contacts/${contactId}`, publicKey, token,
 						);
+						const contact = contactResponse?.item ?? contactResponse;
+						const rawTags = (contact?.tags ?? []) as any[];
+						const tags = rawTags.map((tag: any) => {
+							const data = tag.data ?? tag;
+							return {
+								id: data.tag_id ?? tag.ID ?? tag.id,
+								name: data.tag_name ?? null,
+								slug: data.tag_slug ?? null,
+								description: data.tag_description ?? null,
+							};
+						});
+						responseData = { tags, status: 'success' };
 					}
 				}
 
