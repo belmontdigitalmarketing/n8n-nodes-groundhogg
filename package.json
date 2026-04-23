@@ -1,5 +1,5 @@
 {
-  "name": "n8n-nodes-groundhogg",
+  "name": "@belmontdigitalmarketing/n8n-nodes-groundhogg",
   "version": "0.2.0",
   "description": "n8n community node for the Groundhogg CRM REST API v4",
   "keywords": [
