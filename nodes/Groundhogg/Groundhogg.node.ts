@@ -127,6 +127,17 @@ function applyCustomMetaFields(
 	}
 }
 
+function appendWorkflowFooter(
+	this: IExecuteFunctions,
+	target: Record<string, any>,
+	contentKey: string = 'content',
+): void {
+	const { id } = this.getWorkflow();
+	const footer = `<hr><em>Generated via n8n:</em> <a href="${this.getInstanceBaseUrl()}workflow/${id}">View Workflow</a>`;
+	const existing = target[contentKey];
+	target[contentKey] = existing ? `${existing}<br><br>${footer}` : footer;
+}
+
 function ensureLineBreaks(content: string): string {
 	if (!content) return content;
 	// If the value already contains line-break or block-level HTML, trust the
@@ -912,6 +923,14 @@ export class Groundhogg implements INodeType {
 						default: 'user',
 						description: 'The context of note creation (e.g., "user", "system")',
 					},
+					{
+						displayName: 'Include Link to Workflow',
+						name: 'includeLinkToWorkflow',
+						type: 'boolean',
+						default: false,
+						description:
+							'Whether to append a "Generated via n8n: View Workflow" footer to the note content, linking back to this workflow',
+					},
 				],
 			},
 
@@ -984,6 +1003,14 @@ export class Groundhogg implements INodeType {
 						typeOptions: { rows: 4 },
 						default: '',
 					},
+					{
+						displayName: 'Include Link to Workflow',
+						name: 'includeLinkToWorkflow',
+						type: 'boolean',
+						default: false,
+						description:
+							'Whether to append a "Generated via n8n: View Workflow" footer to the note content, linking back to this workflow. Requires Content to be set.',
+					},
 					{ displayName: 'Summary', name: 'summary', type: 'string', default: '' },
 					{ displayName: 'Type', name: 'type', type: 'string', default: '' },
 				],
@@ -1040,6 +1067,14 @@ export class Groundhogg implements INodeType {
 						type: 'number',
 						default: 0,
 						description: 'WordPress user ID of the assigned user',
+					},
+					{
+						displayName: 'Include Link to Workflow',
+						name: 'includeLinkToWorkflow',
+						type: 'boolean',
+						default: false,
+						description:
+							'Whether to append a "Generated via n8n: View Workflow" footer to the task content, linking back to this workflow',
 					},
 					{
 						displayName: 'Type',
@@ -1142,6 +1177,14 @@ export class Groundhogg implements INodeType {
 						name: 'user_id',
 						type: 'number',
 						default: 0,
+					},
+					{
+						displayName: 'Include Link to Workflow',
+						name: 'includeLinkToWorkflow',
+						type: 'boolean',
+						default: false,
+						description:
+							'Whether to append a "Generated via n8n: View Workflow" footer to the task content, linking back to this workflow. Requires Content to be set.',
 					},
 					{
 						displayName: 'Type',
@@ -1621,6 +1664,10 @@ export class Groundhogg implements INodeType {
 							}
 						}
 
+						if (additional.includeLinkToWorkflow) {
+							appendWorkflowFooter.call(this, data);
+						}
+
 						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
 						responseData = await groundhoggApiRequest.call(
 							this, 'POST', baseUrl, '/notes', publicKey, token, { data },
@@ -1658,9 +1705,13 @@ export class Groundhogg implements INodeType {
 						const updateFields = this.getNodeParameter('noteUpdateFields', i) as IDataObject;
 						const body: Record<string, any> = { data: {} };
 						for (const [key, value] of Object.entries(updateFields)) {
+							if (key === 'includeLinkToWorkflow') continue;
 							if (value !== undefined && value !== '') {
 								body.data[key] = key === 'content' ? ensureLineBreaks(String(value)) : value;
 							}
+						}
+						if (updateFields.includeLinkToWorkflow && body.data.content) {
+							appendWorkflowFooter.call(this, body.data);
 						}
 						responseData = await groundhoggApiRequest.call(
 							this, 'PUT', baseUrl, `/notes/${noteId}`, publicKey, token, body,
@@ -1704,6 +1755,10 @@ export class Groundhogg implements INodeType {
 							data.due_date = todayEndOfDayMySql();
 						}
 
+						if (additional.includeLinkToWorkflow) {
+							appendWorkflowFooter.call(this, data);
+						}
+
 						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
 						responseData = await groundhoggApiRequest.call(
 							this, 'POST', baseUrl, '/tasks', publicKey, token, { data },
@@ -1745,9 +1800,13 @@ export class Groundhogg implements INodeType {
 						const updateFields = this.getNodeParameter('taskUpdateFields', i) as IDataObject;
 						const body: Record<string, any> = { data: {} };
 						for (const [key, value] of Object.entries(updateFields)) {
+							if (key === 'includeLinkToWorkflow') continue;
 							if (value !== undefined && value !== '' && value !== 0) {
 								body.data[key] = key === 'content' ? ensureLineBreaks(String(value)) : value;
 							}
+						}
+						if (updateFields.includeLinkToWorkflow && body.data.content) {
+							appendWorkflowFooter.call(this, body.data);
 						}
 						responseData = await groundhoggApiRequest.call(
 							this, 'PUT', baseUrl, `/tasks/${taskId}`, publicKey, token, body,
