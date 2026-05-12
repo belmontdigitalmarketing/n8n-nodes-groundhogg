@@ -375,8 +375,7 @@ export class Groundhogg implements INodeType {
 				typeOptions: { loadOptionsMethod: 'getOwners' },
 				default: '',
 				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
-				description:
-					'The WordPress user assigned as owner of this contact. List is loaded from your site. Use an expression to pass a user ID that is not in the list.',
+				description: 'The WordPress user assigned as owner of this contact. List is loaded from your site. Use an expression to pass a user ID that is not in the list. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 			{
 				displayName: 'Additional Fields',
@@ -410,16 +409,6 @@ export class Groundhogg implements INodeType {
 				default: {},
 				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
 				options: [
-					{ displayName: 'Mobile Phone', name: 'mobile_phone', type: 'string', default: '' },
-					{ displayName: 'Street Address 1', name: 'street_address_1', type: 'string', default: '' },
-					{ displayName: 'Street Address 2', name: 'street_address_2', type: 'string', default: '' },
-					{ displayName: 'City', name: 'city', type: 'string', default: '' },
-					{ displayName: 'State/Region', name: 'region', type: 'string', default: '' },
-					{ displayName: 'Postal/ZIP Code', name: 'postal_zip', type: 'string', default: '' },
-					{ displayName: 'Country', name: 'country', type: 'string', default: '' },
-					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
-					{ displayName: 'Job Title', name: 'job_title', type: 'string', default: '' },
-					{ displayName: 'Lead Source', name: 'lead_source', type: 'string', default: '' },
 					{
 						displayName: 'Birthday',
 						name: 'birthday',
@@ -428,6 +417,12 @@ export class Groundhogg implements INodeType {
 						placeholder: 'YYYY-MM-DD',
 						description: 'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
 					},
+					{ displayName: 'City', name: 'city', type: 'string', default: '' },
+					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
+					{ displayName: 'Country', name: 'country', type: 'string', default: '' },
+					{ displayName: 'Job Title', name: 'job_title', type: 'string', default: '' },
+					{ displayName: 'Lead Source', name: 'lead_source', type: 'string', default: '' },
+					{ displayName: 'Mobile Phone', name: 'mobile_phone', type: 'string', default: '' },
 					{
 						displayName: 'Notes',
 						name: 'notes',
@@ -435,6 +430,10 @@ export class Groundhogg implements INodeType {
 						typeOptions: { rows: 4 },
 						default: '',
 					},
+					{ displayName: 'Postal/ZIP Code', name: 'postal_zip', type: 'string', default: '' },
+					{ displayName: 'State/Region', name: 'region', type: 'string', default: '' },
+					{ displayName: 'Street Address 1', name: 'street_address_1', type: 'string', default: '' },
+					{ displayName: 'Street Address 2', name: 'street_address_2', type: 'string', default: '' },
 				],
 			},
 			{
@@ -458,8 +457,7 @@ export class Groundhogg implements INodeType {
 								type: 'options',
 								typeOptions: { loadOptionsMethod: 'getCustomFieldKeys' },
 								default: '',
-								description:
-									'The Groundhogg custom field to set. Choose from the list or specify an ID using an expression.',
+								description: 'The Groundhogg custom field to set. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 							},
 							{
 								displayName: 'Value',
@@ -488,8 +486,10 @@ export class Groundhogg implements INodeType {
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
+				typeOptions: {
+					minValue: 1,
+				},
 				default: 50,
-				typeOptions: { minValue: 1, maxValue: 100 },
 				displayOptions: { show: { resource: ['contact'], operation: ['getAll'] } },
 				description: 'Max number of results to return',
 			},
@@ -510,16 +510,10 @@ export class Groundhogg implements INodeType {
 				displayOptions: { show: { resource: ['contact'], operation: ['getAll'] } },
 				options: [
 					{
-						displayName: 'Search',
-						name: 'search',
-						type: 'string',
-						default: '',
-						description: 'Free text search across contact fields',
-					},
-					{
 						displayName: 'Email',
 						name: 'email',
 						type: 'string',
+						placeholder: 'name@email.com',
 						default: '',
 						description: 'Filter by exact email address',
 					},
@@ -536,34 +530,6 @@ export class Groundhogg implements INodeType {
 						default: '',
 					},
 					{
-						displayName: 'Optin Status',
-						name: 'optin_status',
-						type: 'options',
-						options: OPTIN_STATUS_OPTIONS,
-						default: 2,
-					},
-					{
-						displayName: 'Tags Include',
-						name: 'tags_include',
-						type: 'string',
-						default: '',
-						description: 'Comma-separated tag IDs — only return contacts that have ALL these tags',
-					},
-					{
-						displayName: 'Tags Exclude',
-						name: 'tags_exclude',
-						type: 'string',
-						default: '',
-						description: 'Comma-separated tag IDs — exclude contacts that have ANY of these tags',
-					},
-					{
-						displayName: 'Owner ID',
-						name: 'owner_id',
-						type: 'number',
-						default: 0,
-						description: 'Filter by owner WordPress user ID',
-					},
-					{
 						displayName: 'Meta Filters',
 						name: 'meta_filters',
 						type: 'fixedCollection',
@@ -578,13 +544,12 @@ export class Groundhogg implements INodeType {
 								displayName: 'Filter',
 								values: [
 									{
-										displayName: 'Meta Key',
+										displayName: 'Meta Key Name or ID',
 										name: 'key',
 										type: 'options',
 										typeOptions: { loadOptionsMethod: 'getAllMetaKeys' },
 										default: '',
-										description:
-											'The meta field to filter on. Includes both built-in contact meta (primary_phone, company_name, birthday, etc.) and Groundhogg custom fields. Use an expression to pass a key that is not in this list.',
+										description: 'The meta field to filter on. Includes both built-in contact meta (primary_phone, company_name, birthday, etc.) and Groundhogg custom fields. Use an expression to pass a key that is not in this list. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 									},
 									{
 										displayName: 'Operator',
@@ -592,14 +557,14 @@ export class Groundhogg implements INodeType {
 										type: 'options',
 										default: 'EQ',
 										options: [
-											{ name: 'Equals', value: 'EQ' },
-											{ name: 'Not Equal', value: 'NEQ' },
 											{ name: 'Contains', value: 'LIKE' },
 											{ name: 'Does Not Contain', value: 'NOT_LIKE' },
-											{ name: 'In (Comma-Separated)', value: 'IN' },
-											{ name: 'Not In (Comma-Separated)', value: 'NOT_IN' },
-											{ name: 'Exists (Any Value)', value: 'EXISTS' },
 											{ name: 'Does Not Exist', value: 'NOT_EXISTS' },
+											{ name: 'Equals', value: 'EQ' },
+											{ name: 'Exists (Any Value)', value: 'EXISTS' },
+											{ name: 'In (Comma-Separated)', value: 'IN' },
+											{ name: 'Not Equal', value: 'NEQ' },
+											{ name: 'Not In (Comma-Separated)', value: 'NOT_IN' },
 										],
 									},
 									{
@@ -616,6 +581,41 @@ export class Groundhogg implements INodeType {
 								],
 							},
 						],
+					},
+					{
+						displayName: 'Optin Status',
+						name: 'optin_status',
+						type: 'options',
+						options: OPTIN_STATUS_OPTIONS,
+						default: 2,
+					},
+					{
+						displayName: 'Owner ID',
+						name: 'owner_id',
+						type: 'number',
+						default: 0,
+						description: 'Filter by owner WordPress user ID',
+					},
+					{
+						displayName: 'Search',
+						name: 'search',
+						type: 'string',
+						default: '',
+						description: 'Free text search across contact fields',
+					},
+					{
+						displayName: 'Tags Exclude',
+						name: 'tags_exclude',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated tag IDs — exclude contacts that have ANY of these tags',
+					},
+					{
+						displayName: 'Tags Include',
+						name: 'tags_include',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated tag IDs — only return contacts that have ALL these tags',
 					},
 				],
 			},
@@ -638,7 +638,7 @@ export class Groundhogg implements INodeType {
 				default: {},
 				displayOptions: { show: { resource: ['contact'], operation: ['update'] } },
 				options: [
-					{ displayName: 'Email', name: 'email', type: 'string', default: '' },
+					{ displayName: 'Email', name: 'email', type: 'string', placeholder: 'name@email.com', default: '' },
 					{ displayName: 'First Name', name: 'first_name', type: 'string', default: '' },
 					{ displayName: 'Last Name', name: 'last_name', type: 'string', default: '' },
 					{
@@ -664,17 +664,6 @@ export class Groundhogg implements INodeType {
 				default: {},
 				displayOptions: { show: { resource: ['contact'], operation: ['update'] } },
 				options: [
-					{ displayName: 'Primary Phone', name: 'primary_phone', type: 'string', default: '' },
-					{ displayName: 'Mobile Phone', name: 'mobile_phone', type: 'string', default: '' },
-					{ displayName: 'Street Address 1', name: 'street_address_1', type: 'string', default: '' },
-					{ displayName: 'Street Address 2', name: 'street_address_2', type: 'string', default: '' },
-					{ displayName: 'City', name: 'city', type: 'string', default: '' },
-					{ displayName: 'State/Region', name: 'region', type: 'string', default: '' },
-					{ displayName: 'Postal/ZIP Code', name: 'postal_zip', type: 'string', default: '' },
-					{ displayName: 'Country', name: 'country', type: 'string', default: '' },
-					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
-					{ displayName: 'Job Title', name: 'job_title', type: 'string', default: '' },
-					{ displayName: 'Lead Source', name: 'lead_source', type: 'string', default: '' },
 					{
 						displayName: 'Birthday',
 						name: 'birthday',
@@ -683,6 +672,12 @@ export class Groundhogg implements INodeType {
 						placeholder: 'YYYY-MM-DD',
 						description: 'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
 					},
+					{ displayName: 'City', name: 'city', type: 'string', default: '' },
+					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
+					{ displayName: 'Country', name: 'country', type: 'string', default: '' },
+					{ displayName: 'Job Title', name: 'job_title', type: 'string', default: '' },
+					{ displayName: 'Lead Source', name: 'lead_source', type: 'string', default: '' },
+					{ displayName: 'Mobile Phone', name: 'mobile_phone', type: 'string', default: '' },
 					{
 						displayName: 'Notes',
 						name: 'notes',
@@ -690,6 +685,11 @@ export class Groundhogg implements INodeType {
 						typeOptions: { rows: 4 },
 						default: '',
 					},
+					{ displayName: 'Postal/ZIP Code', name: 'postal_zip', type: 'string', default: '' },
+					{ displayName: 'Primary Phone', name: 'primary_phone', type: 'string', default: '' },
+					{ displayName: 'State/Region', name: 'region', type: 'string', default: '' },
+					{ displayName: 'Street Address 1', name: 'street_address_1', type: 'string', default: '' },
+					{ displayName: 'Street Address 2', name: 'street_address_2', type: 'string', default: '' },
 				],
 			},
 			{
@@ -701,14 +701,13 @@ export class Groundhogg implements INodeType {
 				description: 'Comma-separated list of tag IDs or names to apply',
 			},
 			{
-				displayName: 'Remove Tags',
+				displayName: 'Remove Tag Names or IDs',
 				name: 'contactRemoveTags',
 				type: 'multiOptions',
 				typeOptions: { loadOptionsMethod: 'getTags' },
 				default: [],
 				displayOptions: { show: { resource: ['contact'], operation: ['update'] } },
-				description:
-					'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically.',
+				description: 'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 			{
 				displayName: 'Custom Fields',
@@ -731,8 +730,7 @@ export class Groundhogg implements INodeType {
 								type: 'options',
 								typeOptions: { loadOptionsMethod: 'getCustomFieldKeys' },
 								default: '',
-								description:
-									'The Groundhogg custom field to set. Choose from the list or specify an ID using an expression.',
+								description: 'The Groundhogg custom field to set. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 							},
 							{
 								displayName: 'Value',
@@ -775,8 +773,7 @@ export class Groundhogg implements INodeType {
 				default: [],
 				required: true,
 				displayOptions: { show: { resource: ['contactTag'], operation: ['remove'] } },
-				description:
-					'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically.',
+				description: 'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 
 			// ============================================================
@@ -817,8 +814,10 @@ export class Groundhogg implements INodeType {
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
+				typeOptions: {
+					minValue: 1,
+				},
 				default: 50,
-				typeOptions: { minValue: 1, maxValue: 500 },
 				displayOptions: { show: { resource: ['tag'], operation: ['getAll'] } },
 				description: 'Max number of results to return',
 			},
@@ -949,8 +948,10 @@ export class Groundhogg implements INodeType {
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
+				typeOptions: {
+					minValue: 1,
+				},
 				default: 50,
-				typeOptions: { minValue: 1, maxValue: 100 },
 				displayOptions: { show: { resource: ['note'], operation: ['getAll'] } },
 				description: 'Max number of results to return',
 			},
@@ -1047,6 +1048,13 @@ export class Groundhogg implements INodeType {
 				displayOptions: { show: { resource: ['task'], operation: ['create'] } },
 				options: [
 					{
+						displayName: 'Assigned User ID',
+						name: 'user_id',
+						type: 'number',
+						default: 0,
+						description: 'WordPress user ID of the assigned user',
+					},
+					{
 						displayName: 'Content',
 						name: 'content',
 						type: 'string',
@@ -1060,13 +1068,6 @@ export class Groundhogg implements INodeType {
 						type: 'dateTime',
 						default: '',
 						description: 'When the task is due (local time)',
-					},
-					{
-						displayName: 'Assigned User ID',
-						name: 'user_id',
-						type: 'number',
-						default: 0,
-						description: 'WordPress user ID of the assigned user',
 					},
 					{
 						displayName: 'Include Link to Workflow',
@@ -1100,8 +1101,10 @@ export class Groundhogg implements INodeType {
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
+				typeOptions: {
+					minValue: 1,
+				},
 				default: 50,
-				typeOptions: { minValue: 1, maxValue: 100 },
 				displayOptions: { show: { resource: ['task'], operation: ['getAll'] } },
 				description: 'Max number of results to return',
 			},
@@ -1158,7 +1161,12 @@ export class Groundhogg implements INodeType {
 				default: {},
 				displayOptions: { show: { resource: ['task'], operation: ['update'] } },
 				options: [
-					{ displayName: 'Summary', name: 'summary', type: 'string', default: '' },
+					{
+						displayName: 'Assigned User ID',
+						name: 'user_id',
+						type: 'number',
+						default: 0,
+					},
 					{
 						displayName: 'Content',
 						name: 'content',
@@ -1173,12 +1181,6 @@ export class Groundhogg implements INodeType {
 						default: '',
 					},
 					{
-						displayName: 'Assigned User ID',
-						name: 'user_id',
-						type: 'number',
-						default: 0,
-					},
-					{
 						displayName: 'Include Link to Workflow',
 						name: 'includeLinkToWorkflow',
 						type: 'boolean',
@@ -1186,6 +1188,7 @@ export class Groundhogg implements INodeType {
 						description:
 							'Whether to append a "Generated via n8n: View Workflow" footer to the task content, linking back to this workflow. Requires Content to be set.',
 					},
+					{ displayName: 'Summary', name: 'summary', type: 'string', default: '' },
 					{
 						displayName: 'Type',
 						name: 'type',
@@ -1203,8 +1206,10 @@ export class Groundhogg implements INodeType {
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
+				typeOptions: {
+					minValue: 1,
+				},
 				default: 50,
-				typeOptions: { minValue: 1, maxValue: 100 },
 				displayOptions: { show: { resource: ['activity'], operation: ['getAll'] } },
 				description: 'Max number of results to return',
 			},

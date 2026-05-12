@@ -18,6 +18,7 @@ export class GroundhoggApi implements ICredentialType {
 			displayName: 'Public Key',
 			name: 'publicKey',
 			type: 'string',
+			typeOptions: { password: true },
 			default: '',
 			description: 'Your Groundhogg public API key from Groundhogg > Settings > API Keys',
 			required: true,
