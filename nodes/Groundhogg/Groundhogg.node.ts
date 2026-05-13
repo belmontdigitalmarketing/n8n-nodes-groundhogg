@@ -76,7 +76,9 @@ async function getGroundhoggCredentials(
 	}
 	const publicKey = credentials.publicKey as string;
 	const secretKey = credentials.secretKey as string;
-	const token = createHash('md5').update(secretKey + publicKey).digest('hex');
+	const token = createHash('md5')
+		.update(secretKey + publicKey)
+		.digest('hex');
 	return { baseUrl: siteUrl, publicKey, token };
 }
 
@@ -325,9 +327,7 @@ export class Groundhogg implements INodeType {
 				type: 'options',
 				noDataExpression: true,
 				displayOptions: { show: { resource: ['activity'] } },
-				options: [
-					{ name: 'Get Many', value: 'getAll', action: 'Get many activity records' },
-				],
+				options: [{ name: 'Get Many', value: 'getAll', action: 'Get many activity records' }],
 				default: 'getAll',
 			},
 
@@ -344,7 +344,8 @@ export class Groundhogg implements INodeType {
 				default: '',
 				required: true,
 				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
-				description: 'The email address of the contact. If the email already exists, the contact will be updated (upsert).',
+				description:
+					'The email address of the contact. If the email already exists, the contact will be updated (upsert).',
 			},
 			{
 				displayName: 'First Name',
@@ -375,7 +376,8 @@ export class Groundhogg implements INodeType {
 				typeOptions: { loadOptionsMethod: 'getOwners' },
 				default: '',
 				displayOptions: { show: { resource: ['contact'], operation: ['create'] } },
-				description: 'The WordPress user assigned as owner of this contact. List is loaded from your site. Use an expression to pass a user ID that is not in the list. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				description:
+					'The WordPress user assigned as owner of this contact. List is loaded from your site. Use an expression to pass a user ID that is not in the list. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 			{
 				displayName: 'Additional Fields',
@@ -415,7 +417,8 @@ export class Groundhogg implements INodeType {
 						type: 'string',
 						default: '',
 						placeholder: 'YYYY-MM-DD',
-						description: 'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
+						description:
+							'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
 					},
 					{ displayName: 'City', name: 'city', type: 'string', default: '' },
 					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
@@ -457,7 +460,8 @@ export class Groundhogg implements INodeType {
 								type: 'options',
 								typeOptions: { loadOptionsMethod: 'getCustomFieldKeys' },
 								default: '',
-								description: 'The Groundhogg custom field to set. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+								description:
+									'The Groundhogg custom field to set. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 							},
 							{
 								displayName: 'Value',
@@ -549,7 +553,8 @@ export class Groundhogg implements INodeType {
 										type: 'options',
 										typeOptions: { loadOptionsMethod: 'getAllMetaKeys' },
 										default: '',
-										description: 'The meta field to filter on. Includes both built-in contact meta (primary_phone, company_name, birthday, etc.) and Groundhogg custom fields. Use an expression to pass a key that is not in this list. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+										description:
+											'The meta field to filter on. Includes both built-in contact meta (primary_phone, company_name, birthday, etc.) and Groundhogg custom fields. Use an expression to pass a key that is not in this list. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 									},
 									{
 										displayName: 'Operator',
@@ -670,7 +675,8 @@ export class Groundhogg implements INodeType {
 						type: 'string',
 						default: '',
 						placeholder: 'YYYY-MM-DD',
-						description: 'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
+						description:
+							'Stored by Groundhogg as YYYY-MM-DD. Also accepts MM/DD/YYYY or ISO — the node normalizes before sending.',
 					},
 					{ displayName: 'City', name: 'city', type: 'string', default: '' },
 					{ displayName: 'Company Name', name: 'company_name', type: 'string', default: '' },
@@ -707,7 +713,8 @@ export class Groundhogg implements INodeType {
 				typeOptions: { loadOptionsMethod: 'getTags' },
 				default: [],
 				displayOptions: { show: { resource: ['contact'], operation: ['update'] } },
-				description: 'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				description:
+					'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 			{
 				displayName: 'Custom Fields',
@@ -730,7 +737,8 @@ export class Groundhogg implements INodeType {
 								type: 'options',
 								typeOptions: { loadOptionsMethod: 'getCustomFieldKeys' },
 								default: '',
-								description: 'The Groundhogg custom field to set. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+								description:
+									'The Groundhogg custom field to set. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 							},
 							{
 								displayName: 'Value',
@@ -763,7 +771,8 @@ export class Groundhogg implements INodeType {
 				default: '',
 				required: true,
 				displayOptions: { show: { resource: ['contactTag'], operation: ['apply'] } },
-				description: 'Comma-separated list of tag IDs or tag names to apply. Non-existing tag names will be auto-created.',
+				description:
+					'Comma-separated list of tag IDs or tag names to apply. Non-existing tag names will be auto-created.',
 			},
 			{
 				displayName: 'Tag Names or IDs',
@@ -773,7 +782,8 @@ export class Groundhogg implements INodeType {
 				default: [],
 				required: true,
 				displayOptions: { show: { resource: ['contactTag'], operation: ['remove'] } },
-				description: 'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				description:
+					'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 
 			// ============================================================
@@ -1249,10 +1259,9 @@ export class Groundhogg implements INodeType {
 			async getTags(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				try {
 					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
-					const response = await groundhoggApiRequest.call(
-						this, 'GET', baseUrl, '/tags', publicKey, token,
-						undefined, { limit: '500' },
-					);
+					const response = await groundhoggApiRequest.call(this, 'GET', baseUrl, '/tags', publicKey, token, undefined, {
+						limit: '500',
+					});
 					const items = (response?.items ?? []) as any[];
 					return items
 						.map((tag: any) => {
@@ -1272,9 +1281,7 @@ export class Groundhogg implements INodeType {
 			async getCustomFieldKeys(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				try {
 					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
-					const response = await groundhoggApiRequest.call(
-						this, 'GET', baseUrl, '/fields', publicKey, token,
-					);
+					const response = await groundhoggApiRequest.call(this, 'GET', baseUrl, '/fields', publicKey, token);
 					if (!response?.items) return [];
 					return response.items
 						.filter((f: any) => !KNOWN_META_KEYS.includes(f.value || f.id))
@@ -1307,9 +1314,7 @@ export class Groundhogg implements INodeType {
 							name: u.name || u.slug || u.username || `User ${u.id}`,
 							value: String(u.id),
 						}))
-						.sort((a: INodePropertyOptions, b: INodePropertyOptions) =>
-							String(a.name).localeCompare(String(b.name)),
-						);
+						.sort((a: INodePropertyOptions, b: INodePropertyOptions) => String(a.name).localeCompare(String(b.name)));
 				} catch {
 					return [];
 				}
@@ -1321,9 +1326,7 @@ export class Groundhogg implements INodeType {
 
 				try {
 					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
-					const response = await groundhoggApiRequest.call(
-						this, 'GET', baseUrl, '/fields', publicKey, token,
-					);
+					const response = await groundhoggApiRequest.call(this, 'GET', baseUrl, '/fields', publicKey, token);
 					for (const f of (response?.items ?? []) as any[]) {
 						const value = (f.value || f.id) as string | undefined;
 						if (!value || seen.has(value)) continue;
@@ -1413,18 +1416,19 @@ export class Groundhogg implements INodeType {
 							body.tags = parseTagInput(additional.tags as string);
 						}
 
-						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, '/contacts', publicKey, token, body,
-						);
+						responseData = await groundhoggApiRequest.call(this, 'POST', baseUrl, '/contacts', publicKey, token, body);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'get') {
 						const contactId = this.getNodeParameter('contactId', i) as number;
 						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, `/contacts/${contactId}`, publicKey, token,
+							this,
+							'GET',
+							baseUrl,
+							`/contacts/${contactId}`,
+							publicKey,
+							token,
 						);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'getAll') {
 						const limit = this.getNodeParameter('limit', i) as number;
 						const offset = this.getNodeParameter('offset', i) as number;
@@ -1445,11 +1449,15 @@ export class Groundhogg implements INodeType {
 
 						if (filters.tags_include && (filters.tags_include as string).trim()) {
 							const tagIds = (filters.tags_include as string).split(',').map((t) => t.trim());
-							tagIds.forEach((id, idx) => { qs[`query[tags_include][${idx}]`] = id; });
+							tagIds.forEach((id, idx) => {
+								qs[`query[tags_include][${idx}]`] = id;
+							});
 						}
 						if (filters.tags_exclude && (filters.tags_exclude as string).trim()) {
 							const tagIds = (filters.tags_exclude as string).split(',').map((t) => t.trim());
-							tagIds.forEach((id, idx) => { qs[`query[tags_exclude][${idx}]`] = id; });
+							tagIds.forEach((id, idx) => {
+								qs[`query[tags_exclude][${idx}]`] = id;
+							});
 						}
 
 						// Meta filters — WP-style meta_query clauses
@@ -1482,7 +1490,9 @@ export class Groundhogg implements INodeType {
 									.split(',')
 									.map((v) => v.trim())
 									.filter((v) => v.length > 0)
-									.forEach((v, vIdx) => { qs[`${prefix}[value][${vIdx}]`] = v; });
+									.forEach((v, vIdx) => {
+										qs[`${prefix}[value][${vIdx}]`] = v;
+									});
 							} else if (sqlCompare === 'LIKE' || sqlCompare === 'NOT LIKE') {
 								const trimmed = rawValue.trim();
 								const pattern = trimmed.includes('%') ? trimmed : `%${trimmed}%`;
@@ -1493,14 +1503,20 @@ export class Groundhogg implements INodeType {
 						});
 
 						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, '/contacts', publicKey, token, undefined, qs,
+							this,
+							'GET',
+							baseUrl,
+							'/contacts',
+							publicKey,
+							token,
+							undefined,
+							qs,
 						);
 
-						for (const item of (responseData?.items || [])) {
+						for (const item of responseData?.items || []) {
 							returnData.push({ json: item });
 						}
 						continue;
-
 					} else if (operation === 'update') {
 						const contactId = this.getNodeParameter('contactId', i) as number;
 						const updateFields = this.getNodeParameter('contactUpdateFields', i) as IDataObject;
@@ -1533,14 +1549,24 @@ export class Groundhogg implements INodeType {
 						if (removeTagList.length > 0) body.remove_tags = removeTagList;
 
 						responseData = await groundhoggApiRequest.call(
-							this, 'PUT', baseUrl, `/contacts/${contactId}`, publicKey, token, body,
+							this,
+							'PUT',
+							baseUrl,
+							`/contacts/${contactId}`,
+							publicKey,
+							token,
+							body,
 						);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'delete') {
 						const contactId = this.getNodeParameter('contactId', i) as number;
 						responseData = await groundhoggApiRequest.call(
-							this, 'DELETE', baseUrl, `/contacts/${contactId}`, publicKey, token,
+							this,
+							'DELETE',
+							baseUrl,
+							`/contacts/${contactId}`,
+							publicKey,
+							token,
 						);
 					}
 				}
@@ -1555,21 +1581,36 @@ export class Groundhogg implements INodeType {
 						const tagInput = this.getNodeParameter('tagIds', i) as string;
 						const tags = parseTagInput(tagInput);
 						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, `/contacts/${contactId}/tags`, publicKey, token, tags as any,
+							this,
+							'POST',
+							baseUrl,
+							`/contacts/${contactId}/tags`,
+							publicKey,
+							token,
+							tags as any,
 						);
-
 					} else if (operation === 'remove') {
 						const tagInput = this.getNodeParameter('tagIds', i) as string | string[];
 						const tags = parseTagInput(tagInput);
 						responseData = await groundhoggApiRequest.call(
-							this, 'DELETE', baseUrl, `/contacts/${contactId}/tags`, publicKey, token, tags as any,
+							this,
+							'DELETE',
+							baseUrl,
+							`/contacts/${contactId}/tags`,
+							publicKey,
+							token,
+							tags as any,
 						);
-
 					} else if (operation === 'get') {
 						// Fetch the full contact so each tag comes back with name/slug/etc.,
 						// not just the ID list that /contacts/{id}/tags returns.
 						const contactResponse = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, `/contacts/${contactId}`, publicKey, token,
+							this,
+							'GET',
+							baseUrl,
+							`/contacts/${contactId}`,
+							publicKey,
+							token,
 						);
 						const contact = contactResponse?.item ?? contactResponse;
 						const rawTags = (contact?.tags ?? []) as any[];
@@ -1597,18 +1638,12 @@ export class Groundhogg implements INodeType {
 						if (tagDescription) data.tag_description = tagDescription;
 
 						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
-						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, '/tags', publicKey, token, { data },
-						);
+						responseData = await groundhoggApiRequest.call(this, 'POST', baseUrl, '/tags', publicKey, token, { data });
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'get') {
 						const tagId = this.getNodeParameter('tagId', i) as number;
-						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, `/tags/${tagId}`, publicKey, token,
-						);
+						responseData = await groundhoggApiRequest.call(this, 'GET', baseUrl, `/tags/${tagId}`, publicKey, token);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'getAll') {
 						const limit = this.getNodeParameter('limit', i) as number;
 						const tagFilters = this.getNodeParameter('tagFilters', i, {}) as IDataObject;
@@ -1619,13 +1654,19 @@ export class Groundhogg implements INodeType {
 						if (tagFilters.tag_slug) qs['query[tag_slug]'] = tagFilters.tag_slug as string;
 
 						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, '/tags', publicKey, token, undefined, qs,
+							this,
+							'GET',
+							baseUrl,
+							'/tags',
+							publicKey,
+							token,
+							undefined,
+							qs,
 						);
-						for (const item of (responseData?.items || [])) {
+						for (const item of responseData?.items || []) {
 							returnData.push({ json: item });
 						}
 						continue;
-
 					} else if (operation === 'update') {
 						const tagId = this.getNodeParameter('tagId', i) as number;
 						const updateFields = this.getNodeParameter('tagUpdateFields', i) as IDataObject;
@@ -1636,15 +1677,18 @@ export class Groundhogg implements INodeType {
 							}
 						}
 						responseData = await groundhoggApiRequest.call(
-							this, 'PUT', baseUrl, `/tags/${tagId}`, publicKey, token, body,
+							this,
+							'PUT',
+							baseUrl,
+							`/tags/${tagId}`,
+							publicKey,
+							token,
+							body,
 						);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'delete') {
 						const tagId = this.getNodeParameter('tagId', i) as number;
-						responseData = await groundhoggApiRequest.call(
-							this, 'DELETE', baseUrl, `/tags/${tagId}`, publicKey, token,
-						);
+						responseData = await groundhoggApiRequest.call(this, 'DELETE', baseUrl, `/tags/${tagId}`, publicKey, token);
 					}
 				}
 
@@ -1674,18 +1718,12 @@ export class Groundhogg implements INodeType {
 						}
 
 						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
-						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, '/notes', publicKey, token, { data },
-						);
+						responseData = await groundhoggApiRequest.call(this, 'POST', baseUrl, '/notes', publicKey, token, { data });
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'get') {
 						const noteId = this.getNodeParameter('noteId', i) as number;
-						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, `/notes/${noteId}`, publicKey, token,
-						);
+						responseData = await groundhoggApiRequest.call(this, 'GET', baseUrl, `/notes/${noteId}`, publicKey, token);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'getAll') {
 						const limit = this.getNodeParameter('limit', i) as number;
 						const filters = this.getNodeParameter('noteFilters', i) as IDataObject;
@@ -1698,13 +1736,19 @@ export class Groundhogg implements INodeType {
 						if (filters.type) qs['query[type]'] = filters.type as string;
 
 						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, '/notes', publicKey, token, undefined, qs,
+							this,
+							'GET',
+							baseUrl,
+							'/notes',
+							publicKey,
+							token,
+							undefined,
+							qs,
 						);
-						for (const item of (responseData?.items || [])) {
+						for (const item of responseData?.items || []) {
 							returnData.push({ json: item });
 						}
 						continue;
-
 					} else if (operation === 'update') {
 						const noteId = this.getNodeParameter('noteId', i) as number;
 						const updateFields = this.getNodeParameter('noteUpdateFields', i) as IDataObject;
@@ -1719,14 +1763,24 @@ export class Groundhogg implements INodeType {
 							appendWorkflowFooter.call(this, body.data);
 						}
 						responseData = await groundhoggApiRequest.call(
-							this, 'PUT', baseUrl, `/notes/${noteId}`, publicKey, token, body,
+							this,
+							'PUT',
+							baseUrl,
+							`/notes/${noteId}`,
+							publicKey,
+							token,
+							body,
 						);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'delete') {
 						const noteId = this.getNodeParameter('noteId', i) as number;
 						responseData = await groundhoggApiRequest.call(
-							this, 'DELETE', baseUrl, `/notes/${noteId}`, publicKey, token,
+							this,
+							'DELETE',
+							baseUrl,
+							`/notes/${noteId}`,
+							publicKey,
+							token,
 						);
 					}
 				}
@@ -1748,9 +1802,7 @@ export class Groundhogg implements INodeType {
 
 						for (const field of ['content', 'due_date', 'user_id', 'type']) {
 							if (additional[field] !== undefined && additional[field] !== '' && additional[field] !== 0) {
-								data[field] = field === 'content'
-									? ensureLineBreaks(String(additional[field]))
-									: additional[field];
+								data[field] = field === 'content' ? ensureLineBreaks(String(additional[field])) : additional[field];
 							}
 						}
 
@@ -1765,18 +1817,12 @@ export class Groundhogg implements INodeType {
 						}
 
 						// Wrap in { data } to avoid Groundhogg's buggy maybe_group_into_data_and_meta() path
-						responseData = await groundhoggApiRequest.call(
-							this, 'POST', baseUrl, '/tasks', publicKey, token, { data },
-						);
+						responseData = await groundhoggApiRequest.call(this, 'POST', baseUrl, '/tasks', publicKey, token, { data });
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'get') {
 						const taskId = this.getNodeParameter('taskId', i) as number;
-						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, `/tasks/${taskId}`, publicKey, token,
-						);
+						responseData = await groundhoggApiRequest.call(this, 'GET', baseUrl, `/tasks/${taskId}`, publicKey, token);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'getAll') {
 						const limit = this.getNodeParameter('limit', i) as number;
 						const filters = this.getNodeParameter('taskFilters', i) as IDataObject;
@@ -1793,13 +1839,19 @@ export class Groundhogg implements INodeType {
 						if (filters.status === 'complete') qs['query[complete]'] = '1';
 
 						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, '/tasks', publicKey, token, undefined, qs,
+							this,
+							'GET',
+							baseUrl,
+							'/tasks',
+							publicKey,
+							token,
+							undefined,
+							qs,
 						);
-						for (const item of (responseData?.items || [])) {
+						for (const item of responseData?.items || []) {
 							returnData.push({ json: item });
 						}
 						continue;
-
 					} else if (operation === 'update') {
 						const taskId = this.getNodeParameter('taskId', i) as number;
 						const updateFields = this.getNodeParameter('taskUpdateFields', i) as IDataObject;
@@ -1814,27 +1866,47 @@ export class Groundhogg implements INodeType {
 							appendWorkflowFooter.call(this, body.data);
 						}
 						responseData = await groundhoggApiRequest.call(
-							this, 'PUT', baseUrl, `/tasks/${taskId}`, publicKey, token, body,
+							this,
+							'PUT',
+							baseUrl,
+							`/tasks/${taskId}`,
+							publicKey,
+							token,
+							body,
 						);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'delete') {
 						const taskId = this.getNodeParameter('taskId', i) as number;
 						responseData = await groundhoggApiRequest.call(
-							this, 'DELETE', baseUrl, `/tasks/${taskId}`, publicKey, token,
+							this,
+							'DELETE',
+							baseUrl,
+							`/tasks/${taskId}`,
+							publicKey,
+							token,
 						);
-
 					} else if (operation === 'complete') {
 						const taskId = this.getNodeParameter('taskId', i) as number;
 						responseData = await groundhoggApiRequest.call(
-							this, 'PUT', baseUrl, `/tasks/${taskId}/complete`, publicKey, token, {},
+							this,
+							'PUT',
+							baseUrl,
+							`/tasks/${taskId}/complete`,
+							publicKey,
+							token,
+							{},
 						);
 						if (responseData?.item) responseData = responseData.item;
-
 					} else if (operation === 'incomplete') {
 						const taskId = this.getNodeParameter('taskId', i) as number;
 						responseData = await groundhoggApiRequest.call(
-							this, 'PUT', baseUrl, `/tasks/${taskId}/incomplete`, publicKey, token, {},
+							this,
+							'PUT',
+							baseUrl,
+							`/tasks/${taskId}/incomplete`,
+							publicKey,
+							token,
+							{},
 						);
 						if (responseData?.item) responseData = responseData.item;
 					}
@@ -1857,9 +1929,16 @@ export class Groundhogg implements INodeType {
 						if (filters.activity_type) qs['query[activity_type]'] = filters.activity_type as string;
 
 						responseData = await groundhoggApiRequest.call(
-							this, 'GET', baseUrl, '/activity', publicKey, token, undefined, qs,
+							this,
+							'GET',
+							baseUrl,
+							'/activity',
+							publicKey,
+							token,
+							undefined,
+							qs,
 						);
-						for (const item of (responseData?.items || [])) {
+						for (const item of responseData?.items || []) {
 							returnData.push({ json: item });
 						}
 						continue;
@@ -1870,7 +1949,6 @@ export class Groundhogg implements INodeType {
 				if (responseData !== undefined) {
 					returnData.push({ json: responseData });
 				}
-
 			} catch (error) {
 				if (this.continueOnFail()) {
 					returnData.push({
@@ -1878,10 +1956,7 @@ export class Groundhogg implements INodeType {
 					});
 					continue;
 				}
-				throw new NodeOperationError(
-					this.getNode(),
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				throw new NodeOperationError(this.getNode(), error instanceof Error ? error : new Error(String(error)));
 			}
 		}
 

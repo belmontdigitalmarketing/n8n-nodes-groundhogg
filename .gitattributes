@@ -1,0 +1,7 @@
+# Auto-detect text files and normalize to LF in repo and working copy.
+* text=auto eol=lf
+
+# Binary assets — never normalize.
+*.png binary
+*.jpg binary
+*.ico binary
