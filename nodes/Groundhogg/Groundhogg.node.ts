@@ -2,6 +2,7 @@ import {
 	IExecuteFunctions,
 	ILoadOptionsFunctions,
 	INodeExecutionData,
+	INodeListSearchResult,
 	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
@@ -195,6 +196,381 @@ function parseTagInput(input: string | string[] | undefined | null): (number | s
 }
 
 // ============================================================
+// Flow (Funnel) Helpers
+// ============================================================
+
+type GroundhoggCreds = { baseUrl: string; publicKey: string; token: string };
+type FlowStepSummary = { id: number; title: string; type: string; group: string; status: string; order: number };
+// `steps` is populated whenever the payload the flow came from carried them — every
+// funnel read embeds its steps, so a step lookup usually needs no extra request.
+type FlowSummary = { id: number; title: string; status: string; steps?: FlowStepSummary[] };
+
+// v4 object responses nest their columns inside `.data` (the Tag quirk), but not on
+// every endpoint — always read columns through this.
+function ghData(item: any): Record<string, any> {
+	if (!item || typeof item !== 'object') return {};
+	const data = item.data;
+	return data && typeof data === 'object' ? (data as Record<string, any>) : (item as Record<string, any>);
+}
+
+function ghObjectId(item: any): number | undefined {
+	if (!item || typeof item !== 'object') return undefined;
+	const data = ghData(item);
+	const raw = item.ID ?? data.ID ?? item.id ?? data.id;
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function workflowLinkUrl(this: IExecuteFunctions): string {
+	const { id } = this.getWorkflow();
+	return `${this.getInstanceBaseUrl()}workflow/${id}`;
+}
+
+// Keeps fail-loud error messages readable on a site with hundreds of tags or flows.
+function ghNameList(names: string[], max: number = 25): string {
+	const shown = names
+		.slice(0, max)
+		.map((n) => `"${n}"`)
+		.join(', ');
+	return names.length > max ? `${shown} … (${names.length} total)` : shown;
+}
+
+async function ghFetchFlows(
+	this: IExecuteFunctions | ILoadOptionsFunctions,
+	creds: GroundhoggCreds,
+	search?: string,
+): Promise<FlowSummary[]> {
+	const qs: Record<string, string> = { limit: '200' };
+	// Each funnel item carries its whole step tree, so a wide list is a big payload —
+	// narrow it server-side when there is a search term. Callers still filter the
+	// result themselves, because an unsupported query var is silently ignored here.
+	if (search) qs.search = search;
+	const response = await groundhoggApiRequest.call(
+		this,
+		'GET',
+		creds.baseUrl,
+		'/funnels',
+		creds.publicKey,
+		creds.token,
+		undefined,
+		qs,
+	);
+	const flows: FlowSummary[] = [];
+	for (const item of (response?.items ?? []) as any[]) {
+		const id = ghObjectId(item);
+		if (id === undefined) continue;
+		const data = ghData(item);
+		flows.push({
+			id,
+			title: (data.title as string) || `Flow ${id}`,
+			status: (data.status as string) || '',
+			steps: ghParseSteps(item?.steps, id),
+		});
+	}
+	return flows;
+}
+
+// Archived and soft-deleted steps are history, not entry points — Groundhogg leaves
+// them out of an active flow itself (Funnel::get_steps()), so neither the picker nor
+// the resolver offers them.
+function ghParseSteps(rawSteps: any, flowId: number): FlowStepSummary[] | undefined {
+	if (!Array.isArray(rawSteps)) return undefined;
+	const steps: FlowStepSummary[] = [];
+	for (const item of rawSteps as any[]) {
+		const id = ghObjectId(item);
+		if (id === undefined) continue;
+		const data = ghData(item);
+		if (Number(data.funnel_id) !== flowId) continue;
+		const status = (data.step_status as string) || '';
+		if (status === 'archived' || status === 'deleted') continue;
+		steps.push({
+			id,
+			title: (data.step_title as string) || `Step ${id}`,
+			type: (data.step_type as string) || '',
+			group: (data.step_group as string) || '',
+			status,
+			order: Number(data.step_order) || 0,
+		});
+	}
+	steps.sort((a, b) => a.order - b.order || a.id - b.id);
+	return steps;
+}
+
+// Steps come from the funnel payload, never from GET /steps. That endpoint answers
+// 200 with the right total_items and an EMPTY items array: its route permission is
+// edit_funnels, but Base_Object_Api::read() then filters every item through
+// current_user_can('view_step', $step), and `view_step` is granted by no role and
+// absent from the primitive cap map — so the list can never return a step, and
+// GET /steps/{id} answers 401 "You do not have access to this step". Steps embedded
+// in a funnel read carry no such per-item filter. Verified live 2026-09-25.
+async function ghFetchFlowSteps(
+	this: IExecuteFunctions | ILoadOptionsFunctions,
+	creds: GroundhoggCreds,
+	flowId: number,
+): Promise<FlowStepSummary[]> {
+	const response = await groundhoggApiRequest.call(
+		this,
+		'GET',
+		creds.baseUrl,
+		`/funnels/${flowId}`,
+		creds.publicKey,
+		creds.token,
+	);
+	const item = response?.item ?? response;
+	return ghParseSteps(item?.steps, flowId) ?? [];
+}
+
+function flowStepLabel(step: FlowStepSummary): string {
+	const group = step.group && step.group !== 'action' ? ` [${step.group}]` : '';
+	const status = step.status && step.status !== 'active' ? ` (${step.status})` : '';
+	return `${step.order}. ${step.title}${group}${status}`;
+}
+
+async function ghResolveFlow(
+	this: IExecuteFunctions,
+	creds: GroundhoggCreds,
+	raw: string,
+	itemIndex: number,
+): Promise<FlowSummary> {
+	const value = (raw ?? '').toString().trim();
+	if (!value) {
+		throw new NodeOperationError(this.getNode(), 'No flow was given', { itemIndex });
+	}
+
+	if (/^\d+$/.test(value)) {
+		const id = parseInt(value, 10);
+		let item: any;
+		try {
+			const response = await groundhoggApiRequest.call(
+				this,
+				'GET',
+				creds.baseUrl,
+				`/funnels/${id}`,
+				creds.publicKey,
+				creds.token,
+			);
+			item = response?.item ?? response;
+		} catch {
+			item = undefined;
+		}
+		const resolvedId = ghObjectId(item);
+		if (resolvedId === undefined) {
+			throw new NodeOperationError(this.getNode(), `Flow ID ${id} was not found in Groundhogg`, { itemIndex });
+		}
+		const data = ghData(item);
+		return {
+			id: resolvedId,
+			title: (data.title as string) || `Flow ${resolvedId}`,
+			status: (data.status as string) || '',
+			steps: ghParseSteps(item?.steps, resolvedId),
+		};
+	}
+
+	// A title, most likely from an expression — resolve it against the live list rather
+	// than forwarding it, because /funnels/<title>/start is just a 404.
+	const flows = await ghFetchFlows.call(this, creds);
+	const matches = flows.filter((flow) => flow.title.toLowerCase() === value.toLowerCase());
+	if (matches.length === 1) return matches[0];
+	if (matches.length > 1) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`More than one flow is titled "${value}" (IDs ${matches.map((m) => m.id).join(', ')}) — use the flow ID instead`,
+			{ itemIndex },
+		);
+	}
+	throw new NodeOperationError(
+		this.getNode(),
+		`No flow titled "${value}" exists in Groundhogg. Available flows: ${ghNameList(flows.map((f) => f.title))}`,
+		{ itemIndex },
+	);
+}
+
+async function ghResolveFlowStep(
+	this: IExecuteFunctions,
+	creds: GroundhoggCreds,
+	raw: string,
+	flow: FlowSummary,
+	itemIndex: number,
+): Promise<FlowStepSummary | undefined> {
+	const value = (raw ?? '').toString().trim();
+	if (!value) return undefined;
+
+	// The flow read already carried its steps; fall back to a list read only if it
+	// did not. Either way this covers both resolution and the "does it belong to this
+	// flow?" check that the API would otherwise answer with a bare 404.
+	const steps = flow.steps ?? (await ghFetchFlowSteps.call(this, creds, flow.id));
+	const stepList = ghNameList(steps.map((s) => `${s.id}: ${s.title}`));
+
+	if (/^\d+$/.test(value)) {
+		const id = parseInt(value, 10);
+		const match = steps.find((step) => step.id === id);
+		if (match === undefined) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Step ID ${id} does not belong to flow "${flow.title}" (ID ${flow.id}). Steps in this flow: ${stepList}`,
+				{ itemIndex },
+			);
+		}
+		return match;
+	}
+
+	const named = steps.filter((step) => step.title.toLowerCase() === value.toLowerCase());
+	if (named.length === 1) return named[0];
+	if (named.length > 1) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`More than one step in flow "${flow.title}" is titled "${value}" (IDs ${named
+				.map((s) => s.id)
+				.join(', ')}) — use the step ID instead`,
+			{ itemIndex },
+		);
+	}
+	throw new NodeOperationError(
+		this.getNode(),
+		`No step titled "${value}" in flow "${flow.title}" (ID ${flow.id}). Steps in this flow: ${stepList}`,
+		{ itemIndex },
+	);
+}
+
+async function ghResolveContact(
+	this: IExecuteFunctions,
+	creds: GroundhoggCreds,
+	raw: string,
+	itemIndex: number,
+): Promise<{ id: number; email: string | null }> {
+	const value = (raw ?? '').toString().trim();
+	if (!value) {
+		throw new NodeOperationError(this.getNode(), 'No contact was given', { itemIndex });
+	}
+
+	if (/^\d+$/.test(value)) {
+		const id = parseInt(value, 10);
+		let item: any;
+		try {
+			const response = await groundhoggApiRequest.call(
+				this,
+				'GET',
+				creds.baseUrl,
+				`/contacts/${id}`,
+				creds.publicKey,
+				creds.token,
+			);
+			item = response?.item ?? response;
+		} catch {
+			item = undefined;
+		}
+		const resolvedId = ghObjectId(item);
+		if (resolvedId === undefined) {
+			// Clearer than letting the start route answer 401 "Given contact not found".
+			throw new NodeOperationError(this.getNode(), `Contact ID ${id} was not found in Groundhogg`, { itemIndex });
+		}
+		return { id: resolvedId, email: (ghData(item).email as string) || null };
+	}
+
+	if (value.includes('@')) {
+		const response = await groundhoggApiRequest.call(
+			this,
+			'GET',
+			creds.baseUrl,
+			'/contacts',
+			creds.publicKey,
+			creds.token,
+			undefined,
+			{ limit: '1', 'query[email]': value },
+		);
+		const item = ((response?.items ?? []) as any[])[0];
+		const id = ghObjectId(item);
+		if (id === undefined) {
+			throw new NodeOperationError(this.getNode(), `No Groundhogg contact has the email "${value}"`, { itemIndex });
+		}
+		return { id, email: (ghData(item).email as string) || value };
+	}
+
+	throw new NodeOperationError(
+		this.getNode(),
+		`"${value}" is neither a contact ID nor an email address — pick the contact from the list, or pass an ID or email`,
+		{ itemIndex },
+	);
+}
+
+// Audience tags are resolved, never auto-created: an unmatched tag name silently
+// widens a segment, and a bulk flow entry is not something to guess at.
+async function ghResolveTagIds(
+	this: IExecuteFunctions,
+	creds: GroundhoggCreds,
+	input: string | string[] | undefined,
+	fieldLabel: string,
+	itemIndex: number,
+): Promise<number[]> {
+	const entries = parseTagInput(input ?? null).map((entry) => String(entry).trim());
+	if (entries.length === 0) return [];
+
+	const resolved: number[] = [];
+	const names: string[] = [];
+	for (const entry of entries) {
+		if (/^\d+$/.test(entry)) resolved.push(parseInt(entry, 10));
+		else names.push(entry);
+	}
+	if (names.length === 0) return resolved;
+
+	const response = await groundhoggApiRequest.call(
+		this,
+		'GET',
+		creds.baseUrl,
+		'/tags',
+		creds.publicKey,
+		creds.token,
+		undefined,
+		{ limit: '500' },
+	);
+	const byName = new Map<string, number>();
+	const allNames: string[] = [];
+	for (const item of (response?.items ?? []) as any[]) {
+		const data = ghData(item);
+		const id = Number(data.tag_id ?? item.ID ?? item.id);
+		const name = (data.tag_name as string) || '';
+		if (!Number.isFinite(id) || id <= 0 || !name) continue;
+		byName.set(name.toLowerCase(), id);
+		allNames.push(name);
+	}
+
+	const unmatched: string[] = [];
+	for (const name of names) {
+		const id = byName.get(name.toLowerCase());
+		if (id === undefined) unmatched.push(name);
+		else resolved.push(id);
+	}
+	if (unmatched.length > 0) {
+		allNames.sort((a, b) => a.localeCompare(b));
+		throw new NodeOperationError(
+			this.getNode(),
+			`${fieldLabel}: no tag named ${ghNameList(unmatched)} exists in Groundhogg. Existing tags: ${ghNameList(
+				allNames,
+			)}`,
+			{ itemIndex },
+		);
+	}
+	return resolved;
+}
+
+// Flattens the nested segment query into the query[...] form the GET /contacts count
+// probe needs.
+function flattenQueryParams(value: any, prefix: string, target: Record<string, string>): void {
+	if (value === undefined || value === null || value === '') return;
+	if (Array.isArray(value)) {
+		value.forEach((entry, idx) => flattenQueryParams(entry, `${prefix}[${idx}]`, target));
+		return;
+	}
+	if (typeof value === 'object') {
+		for (const [key, entry] of Object.entries(value)) {
+			flattenQueryParams(entry, `${prefix}[${key}]`, target);
+		}
+		return;
+	}
+	target[prefix] = typeof value === 'boolean' ? (value ? '1' : '0') : String(value);
+}
+
+// ============================================================
 // Node Definition
 // ============================================================
 
@@ -224,6 +600,7 @@ export class Groundhogg implements INodeType {
 					{ name: 'Activity', value: 'activity' },
 					{ name: 'Contact', value: 'contact' },
 					{ name: 'Contact Tag', value: 'contactTag' },
+					{ name: 'Flow', value: 'flow' },
 					{ name: 'Note', value: 'note' },
 					{ name: 'Tag', value: 'tag' },
 					{ name: 'Task', value: 'task' },
@@ -265,6 +642,20 @@ export class Groundhogg implements INodeType {
 					{ name: 'Remove Tags', value: 'remove', action: 'Remove tags from a contact' },
 				],
 				default: 'apply',
+			},
+
+			// --- Flow Operations ---
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: { show: { resource: ['flow'] } },
+				options: [
+					{ name: 'Add Contact', value: 'addContact', action: 'Add a contact to a flow' },
+					{ name: 'Add Segment', value: 'addSegment', action: 'Add a segment of contacts to a flow' },
+				],
+				default: 'addContact',
 			},
 
 			// --- Tag Operations ---
@@ -784,6 +1175,250 @@ export class Groundhogg implements INodeType {
 				displayOptions: { show: { resource: ['contactTag'], operation: ['remove'] } },
 				description:
 					'Tags to remove from the contact. Only existing tags can be removed, so this is a dropdown. Use an expression to pass IDs dynamically. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+
+			// ============================================================
+			// Flow Fields
+			// ============================================================
+
+			{
+				displayName: 'Flow',
+				name: 'flowId',
+				type: 'resourceLocator',
+				required: true,
+				default: { mode: 'list', value: '' },
+				description:
+					'The flow (funnel) to add contacts to. It must be active — Groundhogg refuses contacts for an inactive flow. Pick from the list, or enter a flow ID, a flow title, or an expression.',
+				displayOptions: { show: { resource: ['flow'] } },
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						typeOptions: { searchListMethod: 'searchFlows', searchable: true },
+					},
+					{
+						displayName: 'By ID or Title',
+						name: 'id',
+						type: 'string',
+						placeholder: '12 or Welcome Sequence',
+					},
+				],
+			},
+			{
+				displayName: 'Contact',
+				name: 'flowContactId',
+				type: 'resourceLocator',
+				required: true,
+				default: { mode: 'list', value: '' },
+				description:
+					'The contact to add to the flow. Pick from the list, or enter a contact ID, an email address, or an expression.',
+				displayOptions: { show: { resource: ['flow'], operation: ['addContact'] } },
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						typeOptions: { searchListMethod: 'searchContacts', searchable: true },
+					},
+					{
+						displayName: 'By ID or Email',
+						name: 'id',
+						type: 'string',
+						placeholder: '1234 or name@email.com',
+					},
+				],
+			},
+			{
+				displayName: 'Entry Step',
+				name: 'flowStepId',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				description:
+					"Where contacts enter the flow. Leave it empty for the flow's first action step — note that any benchmark step ahead of that one is skipped, so this is not identical to starting the flow by applying a tag. The list only populates once a Flow is chosen by ID or from the list.",
+				displayOptions: { show: { resource: ['flow'] } },
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						typeOptions: { searchListMethod: 'searchFlowSteps', searchable: true },
+					},
+					{
+						displayName: 'By ID or Title',
+						name: 'id',
+						type: 'string',
+						placeholder: '34 or Send Welcome Email',
+					},
+				],
+			},
+			{
+				displayName:
+					'Running this again for a contact already in this flow does not no-op: Groundhogg marks their pending event skipped and queues a new one, which restarts any delay timer they were waiting on.',
+				name: 'flowAddContactNotice',
+				type: 'notice',
+				default: '',
+				displayOptions: { show: { resource: ['flow'], operation: ['addContact'] } },
+			},
+			{
+				displayName:
+					'This enters every contact matching the audience below into the flow, in background batches. Their emails and every other step action fire for real, and Groundhogg has no "remove from flow" endpoint — there is no bulk undo. The node refuses to run when the audience is empty, or when it matches every contact in Groundhogg, unless Add ALL Contacts is on.',
+				name: 'flowSegmentNotice',
+				type: 'notice',
+				default: '',
+				displayOptions: { show: { resource: ['flow'], operation: ['addSegment'] } },
+			},
+			{
+				displayName: 'Audience',
+				name: 'flowAudience',
+				type: 'collection',
+				placeholder: 'Add Audience Filter',
+				default: {},
+				displayOptions: { show: { resource: ['flow'], operation: ['addSegment'] } },
+				options: [
+					{
+						displayName: 'Optin Status',
+						name: 'optin_status',
+						type: 'multiOptions',
+						options: OPTIN_STATUS_OPTIONS,
+						default: [],
+						description: 'Only include contacts whose optin status is one of these',
+					},
+					{
+						displayName: 'Owner ID',
+						name: 'owner',
+						type: 'number',
+						default: 0,
+						description: 'Only include contacts owned by this WordPress user ID',
+					},
+					{
+						displayName: 'Saved Search Name or ID',
+						name: 'saved_search',
+						type: 'options',
+						typeOptions: { loadOptionsMethod: 'getSavedSearches' },
+						default: '',
+						description:
+							'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+					},
+					{
+						displayName: 'Search',
+						name: 'search',
+						type: 'string',
+						default: '',
+						description: 'Free text search across contact fields',
+					},
+					{
+						displayName: 'Tags Exclude',
+						name: 'tags_exclude',
+						type: 'string',
+						default: '',
+						description:
+							'Comma-separated tag IDs or tag names — skip contacts carrying ANY of these tags. An unknown tag name fails the run instead of being ignored.',
+					},
+					{
+						displayName: 'Tags Include',
+						name: 'tags_include',
+						type: 'string',
+						default: '',
+						description:
+							'Comma-separated tag IDs or tag names — only include contacts carrying these tags. An unknown tag name fails the run instead of being ignored.',
+					},
+					{
+						displayName: 'Tags Include Needs All',
+						name: 'tags_include_needs_all',
+						type: 'boolean',
+						default: false,
+						description: 'Whether a contact must carry ALL of the included tags rather than any one of them',
+					},
+				],
+			},
+			{
+				displayName: 'Add ALL Contacts',
+				name: 'flowAddAllContacts',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['flow'], operation: ['addSegment'] } },
+				description:
+					'Whether to enter every contact in Groundhogg into the flow. Required when no audience filter is set, and it also switches off the "this filter matched everyone" safety check.',
+			},
+			{
+				displayName: 'Scheduling',
+				name: 'flowSegmentOptions',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				displayOptions: { show: { resource: ['flow'], operation: ['addSegment'] } },
+				options: [
+					{
+						displayName: 'Batch Amount',
+						name: 'batch_amount',
+						type: 'number',
+						typeOptions: { minValue: 1 },
+						default: 100,
+						description: 'How many contacts to enter per batch',
+					},
+					{
+						displayName: 'Batch Interval',
+						name: 'batch_interval',
+						type: 'options',
+						options: [
+							{ name: 'Days', value: 'days' },
+							{ name: 'Hours', value: 'hours' },
+							{ name: 'Minutes', value: 'minutes' },
+						],
+						default: 'hours',
+						description: 'Unit of time to wait between batches',
+					},
+					{
+						displayName: 'Batch Interval Length',
+						name: 'batch_interval_length',
+						type: 'number',
+						typeOptions: { minValue: 1 },
+						default: 1,
+						description: 'How many intervals to wait between batches',
+					},
+					{
+						displayName: 'Enable Batching',
+						name: 'batching',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to drip the segment into the flow in batches instead of entering everyone at once',
+					},
+					{
+						displayName: 'Start Date',
+						name: 'date',
+						type: 'string',
+						placeholder: 'YYYY-MM-DD',
+						default: '',
+						description:
+							'Date to start entering contacts, in the WordPress site time zone. Groundhogg ignores it unless Start Time is set too, and Start Immediately overrides it.',
+					},
+					{
+						displayName: 'Start Immediately',
+						name: 'now',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to ignore Start Date / Start Time and begin entering contacts right away',
+					},
+					{
+						displayName: 'Start Time',
+						name: 'time',
+						type: 'string',
+						placeholder: 'HH:MM:SS',
+						default: '',
+						description:
+							'Time of day to start entering contacts, in the WordPress site time zone. Groundhogg needs both Start Date and Start Time before it will delay the start; the node sends 00:00:00 when only a date is given.',
+					},
+				],
+			},
+			{
+				displayName: 'Include Link to Workflow',
+				name: 'includeLinkToWorkflow',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['flow'] } },
+				description:
+					"Whether to add a workflowLink field to this node's output, linking back to this workflow as an audit trail for the enrolment. Groundhogg has no free-text field on a flow entry, so nothing is written into Groundhogg itself.",
 			},
 
 			// ============================================================
@@ -1349,6 +1984,96 @@ export class Groundhogg implements INodeType {
 				options.sort((a, b) => a.name.localeCompare(b.name));
 				return options;
 			},
+
+			async getSavedSearches(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				try {
+					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
+					const response = await groundhoggApiRequest.call(this, 'GET', baseUrl, '/searches', publicKey, token);
+					// Saved searches are plain arrays, not Base_Object items — no .data wrapper.
+					const items = (response?.items ?? []) as any[];
+					return items
+						.map((search: any) => {
+							const id = search?.id ?? search?.ID ?? search?.slug;
+							if (id === undefined || id === null || id === '') return null;
+							return { name: search?.name || String(id), value: String(id) } as INodePropertyOptions;
+						})
+						.filter((o: INodePropertyOptions | null): o is INodePropertyOptions => o !== null)
+						.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+				} catch {
+					return [];
+				}
+			},
+		},
+
+		listSearch: {
+			async searchFlows(this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+				const creds = await getGroundhoggCredentials(this);
+				let flows = await ghFetchFlows.call(this, creds, filter);
+				if (filter) {
+					const f = filter.toLowerCase().trim();
+					flows = flows.filter((flow) => flow.title.toLowerCase().includes(f) || String(flow.id) === f);
+				}
+				// Inactive flows stay in the list but are labelled — the API rejects them, and
+				// the node says so, which beats a flow silently missing from the dropdown.
+				const results = flows
+					.map((flow) => ({
+						name: flow.status === 'active' ? flow.title : `${flow.title} (${flow.status || 'inactive'})`,
+						value: String(flow.id),
+					}))
+					.sort((a, b) => a.name.localeCompare(b.name));
+				return { results };
+			},
+
+			async searchFlowSteps(this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+				// Cascade: a step list only makes sense scoped to the flow chosen in this panel.
+				let flowId = 0;
+				try {
+					const raw = this.getCurrentNodeParameter('flowId', { extractValue: true });
+					const asString = raw === undefined || raw === null ? '' : String(raw).trim();
+					if (/^\d+$/.test(asString)) flowId = parseInt(asString, 10);
+				} catch {
+					// no flow field in this context
+				}
+				if (!flowId) return { results: [] };
+
+				const creds = await getGroundhoggCredentials(this);
+				let steps = await ghFetchFlowSteps.call(this, creds, flowId);
+				if (filter) {
+					const f = filter.toLowerCase().trim();
+					steps = steps.filter((step) => step.title.toLowerCase().includes(f) || step.type.toLowerCase().includes(f));
+				}
+				return { results: steps.map((step) => ({ name: flowStepLabel(step), value: String(step.id) })) };
+			},
+
+			async searchContacts(this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+				const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
+				// Server-side search: a Groundhogg install can hold tens of thousands of
+				// contacts, so the dropdown never paginates the whole table.
+				const qs: Record<string, string> = { limit: '50' };
+				if (filter) qs.search = filter;
+				const response = await groundhoggApiRequest.call(
+					this,
+					'GET',
+					baseUrl,
+					'/contacts',
+					publicKey,
+					token,
+					undefined,
+					qs,
+				);
+				const results = ((response?.items ?? []) as any[])
+					.map((item) => {
+						const id = ghObjectId(item);
+						if (id === undefined) return null;
+						const data = ghData(item);
+						const name = [data.first_name, data.last_name].filter(Boolean).join(' ').trim();
+						const email = (data.email as string) || '';
+						const label = name && email ? `${name} (${email})` : name || email || `Contact ${id}`;
+						return { name: label, value: String(id) };
+					})
+					.filter((r: { name: string; value: string } | null): r is { name: string; value: string } => r !== null);
+				return { results };
+			},
 		},
 	};
 
@@ -1623,7 +2348,198 @@ export class Groundhogg implements INodeType {
 								description: data.tag_description ?? null,
 							};
 						});
+
 						responseData = { tags, status: 'success' };
+					}
+				}
+
+				// ======================
+				// Flow
+				// ======================
+				if (resource === 'flow') {
+					const creds = { baseUrl, publicKey, token };
+					const flowRaw = this.getNodeParameter('flowId', i, '', { extractValue: true }) as string;
+					const flow = await ghResolveFlow.call(this, creds, flowRaw, i);
+
+					// The start route answers a bare 401 for an inactive flow — say what to do
+					// about it instead.
+					if (flow.status !== 'active') {
+						throw new NodeOperationError(
+							this.getNode(),
+							`Flow "${flow.title}" (ID ${flow.id}) is ${
+								flow.status || 'not active'
+							} — Groundhogg only accepts contacts into an active flow. Activate it in Groundhogg → Flows, then re-run.`,
+							{ itemIndex: i },
+						);
+					}
+
+					const stepRaw = this.getNodeParameter('flowStepId', i, '', { extractValue: true }) as string;
+					const step = await ghResolveFlowStep.call(this, creds, stepRaw, flow, i);
+					const includeLink = this.getNodeParameter('includeLinkToWorkflow', i, false) as boolean;
+
+					const outcome: Record<string, any> = {
+						success: true,
+						flow_id: flow.id,
+						flow_title: flow.title,
+						step_id: step?.id ?? null,
+						step_title: step?.title ?? null,
+					};
+					// null step_id means Groundhogg picked the entry point itself.
+					if (step === undefined) outcome.entry_step = 'first action step';
+					if (includeLink) outcome.workflowLink = workflowLinkUrl.call(this);
+
+					if (operation === 'addContact') {
+						const contactRaw = this.getNodeParameter('flowContactId', i, '', { extractValue: true }) as string;
+						const contact = await ghResolveContact.call(this, creds, contactRaw, i);
+
+						const body: Record<string, any> = { contact_id: contact.id };
+						if (step !== undefined) body.step_id = step.id;
+
+						const startResponse = await groundhoggApiRequest.call(
+							this,
+							'POST',
+							baseUrl,
+							`/funnels/${flow.id}/start`,
+							publicKey,
+							token,
+							body,
+						);
+
+						responseData = {
+							...outcome,
+							mode: 'contact',
+							contact_id: contact.id,
+							contact_email: contact.email,
+							added: 1,
+							status: startResponse?.status ?? 'success',
+						};
+					} else if (operation === 'addSegment') {
+						const audience = this.getNodeParameter('flowAudience', i, {}) as IDataObject;
+						const addAll = this.getNodeParameter('flowAddAllContacts', i, false) as boolean;
+						const scheduling = this.getNodeParameter('flowSegmentOptions', i, {}) as IDataObject;
+
+						const query: Record<string, any> = {};
+						if (audience.search) query.search = audience.search as string;
+
+						const tagsInclude = await ghResolveTagIds.call(
+							this,
+							creds,
+							audience.tags_include as string | undefined,
+							'Tags Include',
+							i,
+						);
+						if (tagsInclude.length > 0) {
+							query.tags_include = tagsInclude;
+							if (audience.tags_include_needs_all) query.tags_include_needs_all = true;
+						}
+
+						const tagsExclude = await ghResolveTagIds.call(
+							this,
+							creds,
+							audience.tags_exclude as string | undefined,
+							'Tags Exclude',
+							i,
+						);
+						if (tagsExclude.length > 0) query.tags_exclude = tagsExclude;
+
+						const optinStatus = audience.optin_status;
+						if (Array.isArray(optinStatus) && optinStatus.length > 0) {
+							query.optin_status = optinStatus.map((status) => Number(status));
+						}
+						if (audience.owner && Number(audience.owner) > 0) query.owner = Number(audience.owner);
+						if (audience.saved_search) query.saved_search = audience.saved_search as string;
+
+						const hasAudience = Object.keys(query).length > 0;
+						if (!hasAudience && !addAll) {
+							// An empty body would hand Groundhogg's background task an unfiltered
+							// contact query — every contact on the site. Never send that by accident.
+							throw new NodeOperationError(
+								this.getNode(),
+								'No audience filter was set. Add at least one Audience filter, or switch on Add ALL Contacts to enter every contact in Groundhogg into this flow.',
+								{ itemIndex: i },
+							);
+						}
+
+						// Count the audience first: Groundhogg silently drops contact-query vars it
+						// does not recognise, and an ignored filter looks exactly like "everyone".
+						const countQs: Record<string, string> = { count: 'true', limit: '1' };
+						flattenQueryParams(query, 'query', countQs);
+						const countResponse = await groundhoggApiRequest.call(
+							this,
+							'GET',
+							baseUrl,
+							'/contacts',
+							publicKey,
+							token,
+							undefined,
+							countQs,
+						);
+						const estimated = Number(countResponse?.total_items ?? 0);
+
+						if (!Number.isFinite(estimated) || estimated <= 0) {
+							throw new NodeOperationError(
+								this.getNode(),
+								'No contacts match that audience, so nothing would be added to the flow',
+								{ itemIndex: i },
+							);
+						}
+
+						if (hasAudience && !addAll) {
+							const totalResponse = await groundhoggApiRequest.call(
+								this,
+								'GET',
+								baseUrl,
+								'/contacts',
+								publicKey,
+								token,
+								undefined,
+								{ count: 'true', limit: '1' },
+							);
+							const total = Number(totalResponse?.total_items ?? 0);
+							if (Number.isFinite(total) && total > 0 && estimated >= total) {
+								throw new NodeOperationError(
+									this.getNode(),
+									`That audience matched every contact in Groundhogg (${estimated} of ${total}). Groundhogg ignores contact-query filters it does not recognise, so this is usually a filter that did not apply. Narrow the audience, or switch on Add ALL Contacts if you really do mean everyone.`,
+									{ itemIndex: i },
+								);
+							}
+						}
+
+						const body: Record<string, any> = { query };
+						if (step !== undefined) body.step_id = step.id;
+						if (scheduling.batching) {
+							body.batching = true;
+							body.batch_interval = (scheduling.batch_interval as string) || 'hours';
+							body.batch_interval_length = Number(scheduling.batch_interval_length ?? 1) || 1;
+							body.batch_amount = Number(scheduling.batch_amount ?? 100) || 100;
+						}
+						if (scheduling.now) {
+							body.now = true;
+						} else if (scheduling.date) {
+							body.date = scheduling.date as string;
+							// Groundhogg only delays the start when BOTH date and time are present.
+							body.time = (scheduling.time as string) || '00:00:00';
+						}
+
+						const startResponse = await groundhoggApiRequest.call(
+							this,
+							'POST',
+							baseUrl,
+							`/funnels/${flow.id}/start`,
+							publicKey,
+							token,
+							body,
+						);
+
+						responseData = {
+							...outcome,
+							mode: 'segment',
+							estimated_contacts: estimated,
+							add_all_contacts: addAll,
+							scheduled: true,
+							audience: query,
+							status: startResponse?.status ?? 'success',
+						};
 					}
 				}
 

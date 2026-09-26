@@ -44,6 +44,16 @@ Requires Groundhogg **3.x+** (REST API v4).
 - Apply Tags, Remove Tags, Get Tags
 - Accepts comma-separated tag IDs or tag names. Unknown tag names on `Apply` are auto-created by Groundhogg.
 
+### Flow
+- **Add Contact** — enter one contact into an active flow (what Groundhogg's UI calls a Flow and the API still calls a funnel).
+- **Add Segment** — enter a whole audience, which Groundhogg processes as a background batch job.
+- Contacts enter at the flow's **first action step** unless an **Entry Step** is given, so any benchmark step ahead of it is skipped. This is not identical to starting a flow by applying a tag, and it leaves no tag on the contact.
+- The flow must be **active**; the node checks first and says so rather than passing on the API's bare `401`.
+- Flow, Contact and Entry Step are pickers that also accept an ID, a title/email, or an expression. Names and titles are resolved against Groundhogg and an unknown one fails the run, listing what does exist.
+- **Add Segment** guardrails: an empty audience is refused (an empty request body would enter *every* contact on the site), the audience is counted before anything is sent, and an audience that matches every contact is refused unless **Add ALL Contacts** is on — Groundhogg silently ignores contact-query filters it does not recognise, which looks exactly like "everyone". Optional scheduling: batching (amount + interval) and a delayed start date/time in the site's time zone.
+- There is no reverse operation — Groundhogg has no "remove from flow" endpoint. Queued steps can only be cancelled individually from the event queue.
+- Requires the `start_flows` capability on the API key's WordPress user (which maps to `view_funnels` + `send_emails`), plus `edit_contact` on the contact. **Add Segment** additionally needs `schedule_flows` (`view_funnels` + `schedule_broadcasts`).
+
 ### Tag
 - Create, Get, Get Many, Update, Delete
 
@@ -101,6 +111,8 @@ All endpoints are under `<site>/wp-json/gh/v4/`.
 | Contact Tag: Apply | POST | `/contacts/{id}/tags` |
 | Contact Tag: Remove | DELETE | `/contacts/{id}/tags` |
 | Contact Tag: Get | GET | `/contacts/{id}/tags` |
+| Flow: Add Contact | POST | `/funnels/{id}/start` |
+| Flow: Add Segment | POST | `/funnels/{id}/start` |
 | Tag: Create | POST | `/tags` |
 | Tag: Get | GET | `/tags/{id}` |
 | Tag: Get Many | GET | `/tags` |
