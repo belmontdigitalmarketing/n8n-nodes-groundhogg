@@ -195,6 +195,65 @@ function parseTagInput(input: string | string[] | undefined | null): (number | s
 		.filter((t) => t !== '' && t !== 0);
 }
 
+// Fetches a list endpoint, optionally paging through everything.
+//
+// Filter placement is NOT uniform across the v4 API. Base_Object_Api::read() hands
+// $request->get_params() straight to the DB query, so its filters are top-level and a
+// `query[...]` wrapper is silently dropped -- the endpoint then answers with
+// UNFILTERED rows (verified live: /tags?query[tag_name]=X returned all 60 tags, while
+// ?tag_name=X returned 1). Only /contacts overrides read() to accept `query[...]`.
+// Callers must therefore pass each filter the way its own endpoint expects.
+//
+// `limit` and `offset` are honoured by both shapes, so paging is uniform.
+async function groundhoggFetchList(
+	this: IExecuteFunctions,
+	baseUrl: string,
+	endpoint: string,
+	publicKey: string,
+	token: string,
+	qs: Record<string, string>,
+	returnAll: boolean,
+	limit: number,
+	startOffset: number = 0,
+): Promise<any[]> {
+	if (!returnAll) {
+		const response = await groundhoggApiRequest.call(this, 'GET', baseUrl, endpoint, publicKey, token, undefined, {
+			...qs,
+			limit: String(limit),
+			offset: String(startOffset),
+		});
+		return (response?.items ?? []) as any[];
+	}
+
+	const pageSize = 100;
+	const collected: any[] = [];
+	let offset = startOffset;
+
+	for (;;) {
+		const response = await groundhoggApiRequest.call(this, 'GET', baseUrl, endpoint, publicKey, token, undefined, {
+			...qs,
+			limit: String(pageSize),
+			offset: String(offset),
+			found_rows: 'true',
+		});
+		const items = (response?.items ?? []) as any[];
+		collected.push(...items);
+
+		if (items.length < pageSize) break;
+
+		const total = Number(response?.total_items);
+		if (Number.isFinite(total) && total > 0 && collected.length >= total) break;
+
+		offset += pageSize;
+
+		// Belt and braces: never spin indefinitely against a live site if an endpoint
+		// ever stops honouring offset.
+		if (offset > 100000) break;
+	}
+
+	return collected;
+}
+
 // ============================================================
 // Flow (Funnel) Helpers
 // ============================================================
@@ -600,6 +659,7 @@ export class Groundhogg implements INodeType {
 					{ name: 'Activity', value: 'activity' },
 					{ name: 'Contact', value: 'contact' },
 					{ name: 'Contact Tag', value: 'contactTag' },
+					{ name: 'Event Queue', value: 'eventQueue' },
 					{ name: 'Flow', value: 'flow' },
 					{ name: 'Note', value: 'note' },
 					{ name: 'Tag', value: 'tag' },
@@ -644,6 +704,19 @@ export class Groundhogg implements INodeType {
 				default: 'apply',
 			},
 
+			// --- Event Queue Operations ---
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: { show: { resource: ['eventQueue'] } },
+				options: [
+					{ name: 'Cancel', value: 'cancel', action: 'Cancel queued events' },
+					{ name: 'Get Many', value: 'getAll', action: 'Get many queued events' },
+				],
+				default: 'getAll',
+			},
 			// --- Flow Operations ---
 			{
 				displayName: 'Operation',
@@ -878,6 +951,14 @@ export class Groundhogg implements INodeType {
 
 			// --- Contact: Get Many ---
 			{
+				displayName: 'Return All',
+				name: 'returnAll',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['contact'], operation: ['getAll'] } },
+				description: 'Whether to return all results or only up to a given limit',
+			},
+			{
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
@@ -885,7 +966,7 @@ export class Groundhogg implements INodeType {
 					minValue: 1,
 				},
 				default: 50,
-				displayOptions: { show: { resource: ['contact'], operation: ['getAll'] } },
+				displayOptions: { show: { resource: ['contact'], operation: ['getAll'], returnAll: [false] } },
 				description: 'Max number of results to return',
 			},
 			{
@@ -894,7 +975,7 @@ export class Groundhogg implements INodeType {
 				type: 'number',
 				default: 0,
 				displayOptions: { show: { resource: ['contact'], operation: ['getAll'] } },
-				description: 'Number of results to skip (for pagination)',
+				description: 'Number of results to skip. With Return All on, this is where paging starts.',
 			},
 			{
 				displayName: 'Filters',
@@ -1178,6 +1259,161 @@ export class Groundhogg implements INodeType {
 			},
 
 			// ============================================================
+			// Event Queue Fields
+			// ============================================================
+
+			{
+				displayName: 'Return All',
+				name: 'returnAll',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['eventQueue'], operation: ['getAll'] } },
+				description: 'Whether to return all results or only up to a given limit',
+			},
+			{
+				displayName: 'Limit',
+				name: 'limit',
+				type: 'number',
+				typeOptions: { minValue: 1 },
+				default: 50,
+				displayOptions: { show: { resource: ['eventQueue'], operation: ['getAll'], returnAll: [false] } },
+				description: 'Max number of results to return',
+			},
+			{
+				displayName: 'Filters',
+				name: 'eventQueueFilters',
+				type: 'collection',
+				placeholder: 'Add Filter',
+				default: {},
+				displayOptions: { show: { resource: ['eventQueue'], operation: ['getAll'] } },
+				options: [
+					{
+						displayName: 'Contact ID',
+						name: 'contact_id',
+						type: 'number',
+						default: 0,
+						description: 'Only return events queued for this contact',
+					},
+					{
+						displayName: 'Flow Name or ID',
+						name: 'funnel_id',
+						type: 'options',
+						typeOptions: { loadOptionsMethod: 'getFlows' },
+						default: '',
+						description:
+							'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+					},
+					{
+						displayName: 'Status',
+						name: 'status',
+						type: 'options',
+						options: [
+							{ name: 'Cancelled', value: 'cancelled' },
+							{ name: 'Complete', value: 'complete' },
+							{ name: 'Failed', value: 'failed' },
+							{ name: 'Skipped', value: 'skipped' },
+							{ name: 'Waiting', value: 'waiting' },
+						],
+						default: 'waiting',
+						description: 'Only return events in this state. Pending work is "waiting".',
+					},
+				],
+			},
+			{
+				displayName:
+					'Groundhogg has no "remove from flow" endpoint, so cancelling a contact\'s pending events is the nearest equivalent: it stops the steps they are still waiting on. It does not rewind anything the flow has already done, and it does not remove tags the flow applied.',
+				name: 'eventQueueCancelNotice',
+				type: 'notice',
+				default: '',
+				displayOptions: { show: { resource: ['eventQueue'], operation: ['cancel'] } },
+			},
+			{
+				displayName: 'Cancel By',
+				name: 'eventQueueCancelBy',
+				type: 'options',
+				options: [
+					{ name: 'Contact', value: 'contact' },
+					{ name: 'Event ID', value: 'event' },
+				],
+				default: 'contact',
+				displayOptions: { show: { resource: ['eventQueue'], operation: ['cancel'] } },
+				description: 'Cancel every pending event for one contact, or one specific queued event',
+			},
+			{
+				displayName: 'Contact',
+				name: 'eventQueueContactId',
+				type: 'resourceLocator',
+				required: true,
+				default: { mode: 'list', value: '' },
+				description:
+					'The contact whose pending events should be cancelled. Pick from the list, or enter a contact ID, an email address, or an expression.',
+				displayOptions: {
+					show: { resource: ['eventQueue'], operation: ['cancel'], eventQueueCancelBy: ['contact'] },
+				},
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						typeOptions: { searchListMethod: 'searchContacts', searchable: true },
+					},
+					{
+						displayName: 'By ID or Email',
+						name: 'id',
+						type: 'string',
+						placeholder: '1234 or name@email.com',
+					},
+				],
+			},
+			{
+				displayName: 'Flow',
+				name: 'eventQueueFlowId',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				description:
+					"Only cancel events belonging to this flow. Leave it empty to cancel the contact's pending events across every flow.",
+				displayOptions: {
+					show: { resource: ['eventQueue'], operation: ['cancel'], eventQueueCancelBy: ['contact'] },
+				},
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						typeOptions: { searchListMethod: 'searchFlows', searchable: true },
+					},
+					{
+						displayName: 'By ID or Title',
+						name: 'id',
+						type: 'string',
+						placeholder: '12 or Welcome Sequence',
+					},
+				],
+			},
+			{
+				displayName: 'Only Waiting Events',
+				name: 'eventQueueOnlyWaiting',
+				type: 'boolean',
+				default: true,
+				displayOptions: {
+					show: { resource: ['eventQueue'], operation: ['cancel'], eventQueueCancelBy: ['contact'] },
+				},
+				description:
+					'Whether to cancel only events whose status is "waiting". Switch it off to cancel every event still sitting in the queue for this contact.',
+			},
+			{
+				displayName: 'Event ID',
+				name: 'eventQueueEventId',
+				type: 'number',
+				default: 0,
+				required: true,
+				displayOptions: {
+					show: { resource: ['eventQueue'], operation: ['cancel'], eventQueueCancelBy: ['event'] },
+				},
+				description: 'The ID of the queued event to cancel, as listed by the Get Many operation',
+			},
+
+			// ============================================================
 			// Flow Fields
 			// ============================================================
 
@@ -1456,6 +1692,14 @@ export class Groundhogg implements INodeType {
 
 			// --- Tag: Get Many ---
 			{
+				displayName: 'Return All',
+				name: 'returnAll',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['tag'], operation: ['getAll'] } },
+				description: 'Whether to return all results or only up to a given limit',
+			},
+			{
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
@@ -1463,7 +1707,7 @@ export class Groundhogg implements INodeType {
 					minValue: 1,
 				},
 				default: 50,
-				displayOptions: { show: { resource: ['tag'], operation: ['getAll'] } },
+				displayOptions: { show: { resource: ['tag'], operation: ['getAll'], returnAll: [false] } },
 				description: 'Max number of results to return',
 			},
 			{
@@ -1590,6 +1834,14 @@ export class Groundhogg implements INodeType {
 
 			// --- Note: Get Many ---
 			{
+				displayName: 'Return All',
+				name: 'returnAll',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['note'], operation: ['getAll'] } },
+				description: 'Whether to return all results or only up to a given limit',
+			},
+			{
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
@@ -1597,7 +1849,7 @@ export class Groundhogg implements INodeType {
 					minValue: 1,
 				},
 				default: 50,
-				displayOptions: { show: { resource: ['note'], operation: ['getAll'] } },
+				displayOptions: { show: { resource: ['note'], operation: ['getAll'], returnAll: [false] } },
 				description: 'Max number of results to return',
 			},
 			{
@@ -1743,6 +1995,14 @@ export class Groundhogg implements INodeType {
 
 			// --- Task: Get Many ---
 			{
+				displayName: 'Return All',
+				name: 'returnAll',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['task'], operation: ['getAll'] } },
+				description: 'Whether to return all results or only up to a given limit',
+			},
+			{
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
@@ -1750,7 +2010,7 @@ export class Groundhogg implements INodeType {
 					minValue: 1,
 				},
 				default: 50,
-				displayOptions: { show: { resource: ['task'], operation: ['getAll'] } },
+				displayOptions: { show: { resource: ['task'], operation: ['getAll'], returnAll: [false] } },
 				description: 'Max number of results to return',
 			},
 			{
@@ -1848,6 +2108,14 @@ export class Groundhogg implements INodeType {
 			// ============================================================
 
 			{
+				displayName: 'Return All',
+				name: 'returnAll',
+				type: 'boolean',
+				default: false,
+				displayOptions: { show: { resource: ['activity'], operation: ['getAll'] } },
+				description: 'Whether to return all results or only up to a given limit',
+			},
+			{
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
@@ -1855,7 +2123,7 @@ export class Groundhogg implements INodeType {
 					minValue: 1,
 				},
 				default: 50,
-				displayOptions: { show: { resource: ['activity'], operation: ['getAll'] } },
+				displayOptions: { show: { resource: ['activity'], operation: ['getAll'], returnAll: [false] } },
 				description: 'Max number of results to return',
 			},
 			{
@@ -1985,6 +2253,20 @@ export class Groundhogg implements INodeType {
 				return options;
 			},
 
+			async getFlows(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				try {
+					const creds = await getGroundhoggCredentials(this);
+					const flows = await ghFetchFlows.call(this, creds);
+					return flows
+						.map((flow) => ({
+							name: flow.status === 'active' ? flow.title : `${flow.title} (${flow.status || 'inactive'})`,
+							value: String(flow.id),
+						}))
+						.sort((a, b) => a.name.localeCompare(b.name));
+				} catch {
+					return [];
+				}
+			},
 			async getSavedSearches(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				try {
 					const { baseUrl, publicKey, token } = await getGroundhoggCredentials(this);
@@ -2155,15 +2437,13 @@ export class Groundhogg implements INodeType {
 						);
 						if (responseData?.item) responseData = responseData.item;
 					} else if (operation === 'getAll') {
-						const limit = this.getNodeParameter('limit', i) as number;
+						const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
+						const limit = this.getNodeParameter('limit', i, 50) as number;
 						const offset = this.getNodeParameter('offset', i) as number;
 						const filters = this.getNodeParameter('contactFilters', i) as IDataObject;
 
-						const qs: Record<string, string> = {
-							limit: limit.toString(),
-							offset: offset.toString(),
-							found_rows: 'true',
-						};
+						// /contacts overrides read(), so its filters DO belong under query[...].
+						const qs: Record<string, string> = { found_rows: 'true' };
 
 						if (filters.search) qs['search'] = filters.search as string;
 						if (filters.email) qs['query[email]'] = filters.email as string;
@@ -2227,18 +2507,18 @@ export class Groundhogg implements INodeType {
 							}
 						});
 
-						responseData = await groundhoggApiRequest.call(
+						const contacts = await groundhoggFetchList.call(
 							this,
-							'GET',
 							baseUrl,
 							'/contacts',
 							publicKey,
 							token,
-							undefined,
 							qs,
+							returnAll,
+							limit,
+							offset,
 						);
-
-						for (const item of responseData?.items || []) {
+						for (const item of contacts) {
 							returnData.push({ json: item });
 						}
 						continue;
@@ -2353,6 +2633,210 @@ export class Groundhogg implements INodeType {
 					}
 				}
 
+				// ======================
+				// Event Queue
+				// ======================
+				if (resource === 'eventQueue') {
+					const creds = { baseUrl, publicKey, token };
+
+					if (operation === 'getAll') {
+						const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
+						const limit = this.getNodeParameter('limit', i, 50) as number;
+						const filters = this.getNodeParameter('eventQueueFilters', i, {}) as IDataObject;
+
+						// Top-level filters: /event_queue goes through Base_Object_Api::read().
+						const qs: Record<string, string> = {};
+						const wantContact = Number(filters.contact_id ?? 0);
+						const wantFlow = Number(filters.funnel_id ?? 0);
+						const wantStatus = (filters.status as string | undefined) ?? '';
+						if (wantContact > 0) qs.contact_id = String(wantContact);
+						if (wantFlow > 0) qs.funnel_id = String(wantFlow);
+						if (wantStatus) qs.status = wantStatus;
+
+						const events = await groundhoggFetchList.call(
+							this,
+							baseUrl,
+							'/event_queue',
+							publicKey,
+							token,
+							qs,
+							returnAll,
+							limit,
+						);
+
+						// Re-check every filter locally: an ignored filter here would quietly
+						// hand back the whole queue.
+						for (const item of events) {
+							const data = ghData(item);
+							if (wantContact > 0 && Number(data.contact_id) !== wantContact) continue;
+							if (wantFlow > 0 && Number(data.funnel_id) !== wantFlow) continue;
+							if (wantStatus && data.status !== wantStatus) continue;
+							returnData.push({ json: item });
+						}
+						continue;
+					}
+
+					if (operation === 'cancel') {
+						const cancelBy = this.getNodeParameter('eventQueueCancelBy', i, 'contact') as string;
+
+						if (cancelBy === 'event') {
+							const eventId = Number(this.getNodeParameter('eventQueueEventId', i, 0));
+							if (!Number.isFinite(eventId) || eventId <= 0) {
+								throw new NodeOperationError(this.getNode(), 'Event ID must be a positive number', { itemIndex: i });
+							}
+
+							let before: any;
+							try {
+								const response = await groundhoggApiRequest.call(
+									this,
+									'GET',
+									baseUrl,
+									`/event_queue/${eventId}`,
+									publicKey,
+									token,
+								);
+								before = response?.item ?? response;
+							} catch {
+								before = undefined;
+							}
+							if (ghObjectId(before) === undefined) {
+								throw new NodeOperationError(
+									this.getNode(),
+									`Queued event ID ${eventId} was not found. Events that have already run move out of the queue, so there may be nothing left to cancel.`,
+									{ itemIndex: i },
+								);
+							}
+
+							await groundhoggApiRequest.call(
+								this,
+								'POST',
+								baseUrl,
+								`/event_queue/${eventId}/cancel`,
+								publicKey,
+								token,
+								{},
+							);
+
+							// Read it back: a success envelope is not proof the status changed.
+							let after: any;
+							try {
+								const response = await groundhoggApiRequest.call(
+									this,
+									'GET',
+									baseUrl,
+									`/event_queue/${eventId}`,
+									publicKey,
+									token,
+								);
+								after = response?.item ?? response;
+							} catch {
+								after = undefined;
+							}
+
+							const beforeData = ghData(before);
+							responseData = {
+								success: true,
+								cancelled: 1,
+								events: [
+									{
+										id: eventId,
+										contact_id: Number(beforeData.contact_id) || null,
+										flow_id: Number(beforeData.funnel_id) || null,
+										step_id: Number(beforeData.step_id) || null,
+										status_before: beforeData.status ?? null,
+										status_after: after === undefined ? null : (ghData(after).status ?? null),
+									},
+								],
+							};
+						} else {
+							const contactRaw = this.getNodeParameter('eventQueueContactId', i, '', {
+								extractValue: true,
+							}) as string;
+							const contact = await ghResolveContact.call(this, creds, contactRaw, i);
+
+							const flowRaw = this.getNodeParameter('eventQueueFlowId', i, '', { extractValue: true }) as string;
+							// No active check here: pending events are worth cancelling whatever
+							// state the flow is in.
+							const flow = (flowRaw ?? '').toString().trim()
+								? await ghResolveFlow.call(this, creds, flowRaw, i)
+								: undefined;
+
+							const onlyWaiting = this.getNodeParameter('eventQueueOnlyWaiting', i, true) as boolean;
+
+							const qs: Record<string, string> = { contact_id: String(contact.id) };
+							if (flow !== undefined) qs.funnel_id = String(flow.id);
+							if (onlyWaiting) qs.status = 'waiting';
+
+							const queued = await groundhoggFetchList.call(
+								this,
+								baseUrl,
+								'/event_queue',
+								publicKey,
+								token,
+								qs,
+								true,
+								100,
+							);
+
+							// Non-negotiable: re-filter locally before cancelling anything. If the
+							// endpoint ignored contact_id, the unfiltered list would be other
+							// people's pending events.
+							const mine = queued.filter((item) => {
+								const data = ghData(item);
+								if (Number(data.contact_id) !== contact.id) return false;
+								if (flow !== undefined && Number(data.funnel_id) !== flow.id) return false;
+								if (onlyWaiting && data.status !== 'waiting') return false;
+								return true;
+							});
+
+							const cancelled: Array<Record<string, any>> = [];
+							for (const item of mine) {
+								const eventId = ghObjectId(item);
+								if (eventId === undefined) continue;
+								const data = ghData(item);
+								await groundhoggApiRequest.call(
+									this,
+									'POST',
+									baseUrl,
+									`/event_queue/${eventId}/cancel`,
+									publicKey,
+									token,
+									{},
+								);
+								cancelled.push({
+									id: eventId,
+									flow_id: Number(data.funnel_id) || null,
+									step_id: Number(data.step_id) || null,
+									status_before: data.status ?? null,
+								});
+							}
+
+							// Read back what is still pending for this contact.
+							const stillQueued = await groundhoggFetchList.call(
+								this,
+								baseUrl,
+								'/event_queue',
+								publicKey,
+								token,
+								{ contact_id: String(contact.id), status: 'waiting' },
+								true,
+								100,
+							);
+							const remaining = stillQueued.filter((item) => Number(ghData(item).contact_id) === contact.id).length;
+
+							responseData = {
+								success: true,
+								cancelled: cancelled.length,
+								contact_id: contact.id,
+								contact_email: contact.email,
+								flow_id: flow?.id ?? null,
+								flow_title: flow?.title ?? null,
+								events: cancelled,
+								remaining_waiting: remaining,
+							};
+						}
+					}
+				}
 				// ======================
 				// Flow
 				// ======================
@@ -2561,25 +3045,19 @@ export class Groundhogg implements INodeType {
 						responseData = await groundhoggApiRequest.call(this, 'GET', baseUrl, `/tags/${tagId}`, publicKey, token);
 						if (responseData?.item) responseData = responseData.item;
 					} else if (operation === 'getAll') {
-						const limit = this.getNodeParameter('limit', i) as number;
+						const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
+						const limit = this.getNodeParameter('limit', i, 50) as number;
 						const tagFilters = this.getNodeParameter('tagFilters', i, {}) as IDataObject;
-						const qs: Record<string, string> = { limit: limit.toString() };
+						// Top-level, not query[...]: /tags reads its filters from the request
+						// params, and a query[...] wrapper returns every tag instead.
+						const qs: Record<string, string> = {};
 
 						if (tagFilters.search) qs['search'] = tagFilters.search as string;
-						if (tagFilters.tag_name) qs['query[tag_name]'] = tagFilters.tag_name as string;
-						if (tagFilters.tag_slug) qs['query[tag_slug]'] = tagFilters.tag_slug as string;
+						if (tagFilters.tag_name) qs['tag_name'] = tagFilters.tag_name as string;
+						if (tagFilters.tag_slug) qs['tag_slug'] = tagFilters.tag_slug as string;
 
-						responseData = await groundhoggApiRequest.call(
-							this,
-							'GET',
-							baseUrl,
-							'/tags',
-							publicKey,
-							token,
-							undefined,
-							qs,
-						);
-						for (const item of responseData?.items || []) {
+						const tags = await groundhoggFetchList.call(this, baseUrl, '/tags', publicKey, token, qs, returnAll, limit);
+						for (const item of tags) {
 							returnData.push({ json: item });
 						}
 						continue;
@@ -2641,27 +3119,29 @@ export class Groundhogg implements INodeType {
 						responseData = await groundhoggApiRequest.call(this, 'GET', baseUrl, `/notes/${noteId}`, publicKey, token);
 						if (responseData?.item) responseData = responseData.item;
 					} else if (operation === 'getAll') {
-						const limit = this.getNodeParameter('limit', i) as number;
+						const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
+						const limit = this.getNodeParameter('limit', i, 50) as number;
 						const filters = this.getNodeParameter('noteFilters', i) as IDataObject;
-						const qs: Record<string, string> = { limit: limit.toString() };
+						// Top-level, not query[...] -- see the note on groundhoggFetchList.
+						const qs: Record<string, string> = {};
 
 						if (filters.object_id && filters.object_id !== 0) {
-							qs['query[object_id]'] = filters.object_id.toString();
-							qs['query[object_type]'] = 'contact';
+							qs['object_id'] = filters.object_id.toString();
+							qs['object_type'] = 'contact';
 						}
-						if (filters.type) qs['query[type]'] = filters.type as string;
+						if (filters.type) qs['type'] = filters.type as string;
 
-						responseData = await groundhoggApiRequest.call(
+						const notes = await groundhoggFetchList.call(
 							this,
-							'GET',
 							baseUrl,
 							'/notes',
 							publicKey,
 							token,
-							undefined,
 							qs,
+							returnAll,
+							limit,
 						);
-						for (const item of responseData?.items || []) {
+						for (const item of notes) {
 							returnData.push({ json: item });
 						}
 						continue;
@@ -2740,31 +3220,33 @@ export class Groundhogg implements INodeType {
 						responseData = await groundhoggApiRequest.call(this, 'GET', baseUrl, `/tasks/${taskId}`, publicKey, token);
 						if (responseData?.item) responseData = responseData.item;
 					} else if (operation === 'getAll') {
-						const limit = this.getNodeParameter('limit', i) as number;
+						const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
+						const limit = this.getNodeParameter('limit', i, 50) as number;
 						const filters = this.getNodeParameter('taskFilters', i) as IDataObject;
-						const qs: Record<string, string> = { limit: limit.toString() };
+						// Top-level, not query[...] -- see the note on groundhoggFetchList.
+						const qs: Record<string, string> = {};
 
 						if (filters.object_id && filters.object_id !== 0) {
-							qs['query[object_id]'] = filters.object_id.toString();
-							qs['query[object_type]'] = 'contact';
+							qs['object_id'] = filters.object_id.toString();
+							qs['object_type'] = 'contact';
 						}
 						if (filters.user_id && filters.user_id !== 0) {
-							qs['query[user_id]'] = filters.user_id.toString();
+							qs['user_id'] = filters.user_id.toString();
 						}
-						if (filters.status === 'incomplete') qs['query[complete]'] = '0';
-						if (filters.status === 'complete') qs['query[complete]'] = '1';
+						if (filters.status === 'incomplete') qs['complete'] = '0';
+						if (filters.status === 'complete') qs['complete'] = '1';
 
-						responseData = await groundhoggApiRequest.call(
+						const tasks = await groundhoggFetchList.call(
 							this,
-							'GET',
 							baseUrl,
 							'/tasks',
 							publicKey,
 							token,
-							undefined,
 							qs,
+							returnAll,
+							limit,
 						);
-						for (const item of responseData?.items || []) {
+						for (const item of tasks) {
 							returnData.push({ json: item });
 						}
 						continue;
@@ -2833,28 +3315,30 @@ export class Groundhogg implements INodeType {
 				// ======================
 				if (resource === 'activity') {
 					if (operation === 'getAll') {
-						const limit = this.getNodeParameter('limit', i) as number;
+						const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
+						const limit = this.getNodeParameter('limit', i, 50) as number;
 						const filters = this.getNodeParameter('activityFilters', i) as IDataObject;
-						const qs: Record<string, string> = { limit: limit.toString() };
+						// Top-level only. contact_id has to be here anyway for the permission
+						// callback, and query[activity_type] was being ignored outright --
+						// verified live: 29 rows unfiltered vs 6 with the top-level filter.
+						const qs: Record<string, string> = {};
 
-						// contact_id also sent top-level because activity's permission callback reads it there
 						if (filters.contact_id && filters.contact_id !== 0) {
 							qs['contact_id'] = filters.contact_id.toString();
-							qs['query[contact_id]'] = filters.contact_id.toString();
 						}
-						if (filters.activity_type) qs['query[activity_type]'] = filters.activity_type as string;
+						if (filters.activity_type) qs['activity_type'] = filters.activity_type as string;
 
-						responseData = await groundhoggApiRequest.call(
+						const activity = await groundhoggFetchList.call(
 							this,
-							'GET',
 							baseUrl,
 							'/activity',
 							publicKey,
 							token,
-							undefined,
 							qs,
+							returnAll,
+							limit,
 						);
-						for (const item of responseData?.items || []) {
+						for (const item of activity) {
 							returnData.push({ json: item });
 						}
 						continue;

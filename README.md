@@ -35,9 +35,11 @@ Requires Groundhogg **3.x+** (REST API v4).
 
 ## Supported resources
 
+Every **Get Many** operation has a **Return All** toggle. Left off (the default) it returns up to **Limit**; switched on, the node pages through the whole result set 100 at a time.
+
 ### Contact
 - Create, Get, Get Many, Update, Delete
-- Create/Update support core fields (name, optin status, owner), meta fields (phone, address, company, birthday, lead source, notes), tag application/removal, and Groundhogg custom fields via n8n's Resource Mapper.
+- Create/Update support core fields (name, optin status, owner), meta fields (phone, address, company, birthday, lead source, notes), tag application/removal, and Groundhogg custom fields (pick the meta key from a dropdown, or pass your own via an expression).
 - Create is an **upsert** — if a contact with the email already exists it is updated.
 
 ### Contact Tag
@@ -54,6 +56,13 @@ Requires Groundhogg **3.x+** (REST API v4).
 - There is no reverse operation — Groundhogg has no "remove from flow" endpoint. Queued steps can only be cancelled individually from the event queue.
 - Requires the `start_flows` capability on the API key's WordPress user (which maps to `view_funnels` + `send_emails`), plus `edit_contact` on the contact. **Add Segment** additionally needs `schedule_flows` (`view_funnels` + `schedule_broadcasts`).
 
+### Event Queue
+- **Get Many** — inspect pending (and cancelled / failed / skipped) events, filtered by contact, flow, or status.
+- **Cancel** — stop queued steps. Cancel every pending event for a contact (optionally scoped to one flow), or one specific event by ID.
+- This is the nearest thing to "remove from flow": Groundhogg has no such endpoint. It stops steps the contact is still waiting on; it does not rewind anything a flow already did, and it does not remove tags the flow applied.
+- Cancelled events stay in the queue marked `cancelled`, so the output reports `remaining_waiting` — what is still pending for that contact after the cancel.
+- Every filter is re-checked client-side before anything is cancelled, so an ignored server-side filter can never cause someone else's events to be cancelled.
+
 ### Tag
 - Create, Get, Get Many, Update, Delete
 
@@ -67,6 +76,15 @@ Requires Groundhogg **3.x+** (REST API v4).
 
 ### Activity
 - Get Many — read engagement events (opens, clicks, page views, form submissions, bounces, etc.) optionally filtered by contact ID and activity type.
+
+## A note on filters
+
+Groundhogg's v4 API does not take filters the same way everywhere. `/contacts` overrides
+`read()` and expects them nested under `query[...]`; every other object endpoint hands the
+raw request params to its database query, so filters belong at the **top level** and a
+`query[...]` wrapper is silently discarded — the endpoint then answers with *unfiltered*
+rows rather than an error. Node versions before 0.4.0 sent `query[...]` everywhere, which
+meant the Tag, Note, Task and Activity filters returned everything. Fixed in 0.4.0.
 
 ## Development
 
@@ -111,6 +129,8 @@ All endpoints are under `<site>/wp-json/gh/v4/`.
 | Contact Tag: Apply | POST | `/contacts/{id}/tags` |
 | Contact Tag: Remove | DELETE | `/contacts/{id}/tags` |
 | Contact Tag: Get | GET | `/contacts/{id}/tags` |
+| Event Queue: Get Many | GET | `/event_queue` |
+| Event Queue: Cancel | POST | `/event_queue/{id}/cancel` |
 | Flow: Add Contact | POST | `/funnels/{id}/start` |
 | Flow: Add Segment | POST | `/funnels/{id}/start` |
 | Tag: Create | POST | `/tags` |
