@@ -19,12 +19,19 @@ const OPTIN_STATUS_OPTIONS: INodePropertyOptions[] = [
 	{ name: 'Unconfirmed', value: 1 },
 	{ name: 'Confirmed', value: 2 },
 	{ name: 'Unsubscribed', value: 3 },
-	{ name: 'Weekly', value: 4 },
-	{ name: 'Monthly', value: 5 },
-	{ name: 'Hard Bounce', value: 6 },
+	{ name: 'Subscribed Weekly', value: 4 },
+	{ name: 'Subscribed Monthly', value: 5 },
+	{ name: 'Bounced', value: 6 },
 	{ name: 'Spam', value: 7 },
 	{ name: 'Complained', value: 8 },
 	{ name: 'Blocked', value: 9 },
+];
+
+// Same list for write operations, plus an inert default so merely adding the
+// field to an Update node does not rewrite the contact's consent status.
+const OPTIN_STATUS_SET_OPTIONS: INodePropertyOptions[] = [
+	{ name: '— Leave Unchanged —', value: '' },
+	...OPTIN_STATUS_OPTIONS,
 ];
 
 const ACTIVITY_TYPE_OPTIONS: INodePropertyOptions[] = [
@@ -856,7 +863,7 @@ export class Groundhogg implements INodeType {
 						name: 'optin_status',
 						type: 'options',
 						options: OPTIN_STATUS_OPTIONS,
-						default: 2,
+						default: 1,
 					},
 					{
 						displayName: 'Tags',
@@ -1063,8 +1070,10 @@ export class Groundhogg implements INodeType {
 						displayName: 'Optin Status',
 						name: 'optin_status',
 						type: 'options',
-						options: OPTIN_STATUS_OPTIONS,
-						default: 2,
+						options: OPTIN_STATUS_SET_OPTIONS,
+						default: '',
+						description:
+							'Leave on "Leave Unchanged" to keep the current status. Bounced, Unsubscribed, Spam, Complained and Blocked all make the contact non-marketable.',
 					},
 					{
 						displayName: 'Owner ID',
