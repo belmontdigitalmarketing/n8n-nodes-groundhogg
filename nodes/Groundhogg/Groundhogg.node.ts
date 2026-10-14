@@ -1070,10 +1070,8 @@ export class Groundhogg implements INodeType {
 						displayName: 'Optin Status',
 						name: 'optin_status',
 						type: 'options',
-						options: OPTIN_STATUS_SET_OPTIONS,
-						default: '',
-						description:
-							'Leave on "Leave Unchanged" to keep the current status. Bounced, Unsubscribed, Spam, Complained and Blocked all make the contact non-marketable.',
+						options: OPTIN_STATUS_OPTIONS,
+						default: 2,
 					},
 					{
 						displayName: 'Owner ID',
@@ -1131,8 +1129,10 @@ export class Groundhogg implements INodeType {
 						displayName: 'Optin Status',
 						name: 'optin_status',
 						type: 'options',
-						options: OPTIN_STATUS_OPTIONS,
-						default: 2,
+						options: OPTIN_STATUS_SET_OPTIONS,
+						default: '',
+						description:
+							'Leave on "Leave Unchanged" to keep the current status. Bounced, Unsubscribed, Spam, Complained and Blocked all make the contact non-marketable.',
 					},
 					{
 						displayName: 'Owner ID',
